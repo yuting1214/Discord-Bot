@@ -37,6 +37,13 @@ referral link are unchanged.
   passing `None` into discord.py and surfacing an opaque `TypeError`.
 - **Command tree syncs from `setup_hook`**, not `on_ready`, which re-fires on every
   gateway reconnect against a sharply rate-limited endpoint.
+- **Startup waits for private networking.** Railway reaches the database over
+  `*.railway.internal`, which does not resolve for the first moment of a container's
+  life. Connecting immediately failed with `Name or service not known` and the process
+  exited — on a perfectly healthy deployment. Observed on a real deploy; this is a
+  strong candidate for a share of the template's historic first-deploy failures.
+  Startup now retries with backoff, and still gives up eventually so a genuinely
+  misconfigured database is not retried forever.
 - **Added `GET /health`**, reporting database reachability rather than a bare `ok`, and
   wired it as the platform healthcheck via `railway.json` with an `ON_FAILURE` restart
   policy.
