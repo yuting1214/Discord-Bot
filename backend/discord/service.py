@@ -13,14 +13,13 @@ wrap their work in a real transaction instead.
 """
 
 import logging
-from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import asc, case, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.constants import CURRENT_TIMEZONE, MEMORY_WINDOW_SIZE
+from backend.constants import MEMORY_WINDOW_SIZE, utcnow
 from backend.discord.utils import generate_uuid_key
 from backend.fastapi.models import (
     LLM,
@@ -126,7 +125,7 @@ async def find_active_sessions(
 
 def deactivate_session(session: Session) -> None:
     session.is_active = False
-    session.end_time = datetime.now(CURRENT_TIMEZONE).replace(tzinfo=None)
+    session.end_time = utcnow()
 
 
 def activate_session(session: Session) -> None:
@@ -184,7 +183,7 @@ async def end_conversation(db: AsyncSession, conversation_id: UUID) -> None:
         await db.execute(select(Conversation).where(Conversation.id == conversation_id))
     ).scalars().first()
     if conversation is not None:
-        conversation.end_time = datetime.now(CURRENT_TIMEZONE).replace(tzinfo=None)
+        conversation.end_time = utcnow()
 
 
 async def create_message(
@@ -252,7 +251,7 @@ async def record_llm_usage(
     usage = LLMUsage(
         llm_id=llm.id,
         session_id=session_id,
-        timestamp=datetime.now(CURRENT_TIMEZONE).replace(tzinfo=None),
+        timestamp=utcnow(),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )

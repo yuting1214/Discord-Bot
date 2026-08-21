@@ -97,4 +97,6 @@ def test_openapi_exposes_the_expected_surface():
     paths = set(spec["paths"])
     assert "/health" in paths
     assert {"/", "/login", "/logout"} <= paths
-    assert any(p.startswith("/api/v1/async") for p in paths)
+    assert any(p.startswith("/api/v1/") for p in paths)
+    # The sync mirror of every endpoint is gone; nothing should remain under it.
+    assert not any(p.startswith("/api/v1/sync") for p in paths)

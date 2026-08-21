@@ -12,13 +12,11 @@ dependencies = [
     "pydantic-settings",
     "asyncpg",
     "aiosqlite",
-    "psycopg2-binary",
     "python-dotenv",
     "itsdangerous",
     "jinja2",
     "python-multipart",
     "httpx",
-    "pytz",
     "pgvector>=0.3",
     # OpenAI and OpenRouter share a wire protocol, so one SDK serves both.
     "openai>=1.100",

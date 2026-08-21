@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize the database connection
-    init_db()
+    await init_db()
 
     # Surface generated docs credentials before anything can need them.
     log_credentials_once()
@@ -99,8 +99,7 @@ modules = [
 
 for module in modules:
     label = module.__name__.lower().split(".")[-1]
-    app.include_router(module.router_sync, prefix="/api/v1/sync", tags=[label])
-    app.include_router(module.router_async, prefix="/api/v1/async", tags=[label])
+    app.include_router(module.router, prefix="/api/v1", tags=[label])
 
 
 def fastapi_server_run():
