@@ -1,0 +1,136 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.2.0] - 2026-08-21
+
+The template is rebranded and made public at this release. The deploy slug and
+referral link are unchanged.
+
+### Security
+- **Empty docs credentials no longer authenticate.** `authenticate_user` compared the
+  submitted form against `os.getenv("USER_NAME")` / `os.getenv("PASSWORD")`, and the
+  Railway template declares both with empty-string defaults — so on a default deploy
+  `"" == ""` held and an empty login form opened `/docs`, `/redoc` and the full API
+  schema to anyone. Credentials are now generated when unset and printed once in the
+  startup logs.
+- **Constant-time credential comparison** (`secrets.compare_digest`), evaluating both
+  halves rather than short-circuiting, so neither timing nor early exit reveals a
+  correct username.
+- **`SECRET_KEY` is a real setting**, generated per process when unset. Session cookies
+  were previously signed with the literal `"your_secret_key"`, published in this
+  repository and identical across every deployment.
+- **Command handlers no longer echo raw exception strings into Discord**, which could
+  disclose connection strings and provider errors to any member of the server.
+- Repository history was re-rooted before publication: a tracked `.env` carried live
+  credentials in 12 of 15 revisions, including a bot token present from the first commit.
+
+### Deploy Health
+- **Removed the `message_content` privileged intent.** Unless a deployer had also enabled
+  it in the Discord Developer Portal — a step no documentation mentioned — login failed
+  with `PrivilegedIntentsRequired` and the container died on boot. The bot serves slash
+  commands only and never read message content.
+- **Commands work in DMs**, or rather fail cleanly there: `interaction.guild` is `None`
+  in a direct message, so reading guild attributes raised `AttributeError` and the
+  command died with no reply at all.
+- **Fail fast on a missing `DISCORD_TOKEN`** with an actionable message, instead of
+  passing `None` into discord.py and surfacing an opaque `TypeError`.
+- **Command tree syncs from `setup_hook`**, not `on_ready`, which re-fires on every
+  gateway reconnect against a sharply rate-limited endpoint.
+- **Added `GET /health`**, reporting database reachability rather than a bare `ok`.
+
+### Architecture
+- **The bot no longer calls its own HTTP API.** Every read and write went out over
+  `RAILWAY_PUBLIC_DOMAIN` and back into the same container — six to ten sequential
+  public-internet round trips per slash command, billed as egress, failing outright
+  during cold start before the domain had a certificate. The bot now uses the database
+  directly. Net 330 lines and an entire indirection tier removed.
+- **Real transactions replace the compensating-rollback manager**, which undid partial
+  work by issuing DELETE and POST requests that could themselves fail.
+- **The async path is genuinely async.** `run_async.py` previously called synchronous
+  HTTP helpers inside `async def`, blocking the event loop and stalling the bot for
+  every other user for the duration of each request.
+- **Two short transactions per command**, with the embedding and completion calls
+  between them, so a pooled connection is never held across a multi-second completion.
+- **Collapsed the duplicate synchronous data path**: one generic async CRUD replaces ten
+  hand-written sync/async service pairs, and the mirrored `/api/v1/sync` and
+  `/api/v1/async` route trees become a single `/api/v1`. OpenAPI surface 53 → 28 paths.
+- `llm_usages` is populated from provider-reported token counts; no code path had ever
+  written to that table.
+
+### Search
+- **Meilisearch replaced by pgvector**, inside the PostgreSQL service the template
+  already deploys. This deletes an always-on container, a persistent volume and a public
+  service domain from every deployment — and the bot had been reaching that public domain
+  on *every message*, not only on search. Railway's `postgres-ssl` image already ships
+  `postgresql-17-pgvector`.
+- The pinned image was two years stale (v1.8.4 against v1.53) and the app toggled an
+  experimental `vectorStore` flag at startup that has since gone stable.
+- Ranking blends cosine similarity with `ts_rank`, matching the previous `semanticRatio`
+  behaviour, and degrades to keyword-only when an embedding cannot be produced.
+
+### LLM
+- **Dropped LangChain for the provider SDKs.** The chain used `langchain.prompts` and
+  `langchain_community.chat_models`, both of which moved in LangChain 1.x, so a fresh
+  install of the unpinned requirement resolved to 1.3 and failed to import. One OpenAI
+  SDK now serves both OpenAI and OpenRouter. Worth **−36 MB** of resident floor,
+  −31 packages and −61 MB of image.
+- **Default models are `gpt-5.6-luna` / `openai/gpt-5.6-luna`**, and every model id is
+  env-overridable. Hardcoding is what pinned the previous release to `gpt-3.5-turbo-0125`.
+- **Reasoning is persisted and replayed.** Reasoning models return a `reasoning_details`
+  trace that must be handed back verbatim on the next request; without it the model
+  restarts its reasoning every turn, paying for it repeatedly and still losing the thread.
+- Provider clients are cached, so the httpx connection pool is reused rather than rebuilt
+  on every message.
+- `llm/` no longer imports `backend/`: importing the LLM layer used to run the
+  application's import-time argparse as a side effect.
+
+### Memory & Deployment (Railway bills by memory)
+- **Multi-stage Dockerfile on `uv`**: the runtime layer holds only the venv and `src/`.
+  Execs the venv interpreter directly rather than through `uv run`, which would keep a
+  ~25 MB wrapper process resident for the life of the container.
+- `UV_COMPILE_BYTECODE=1`, `MALLOC_ARENA_MAX=2`, `MALLOC_TRIM_THRESHOLD_=100000`.
+- **Connection pool sized for an idle service**: `pool_size=1` (held open, billed idle)
+  with `max_overflow=12` (opened on demand, closed on return), plus `pool_pre_ping` and
+  `pool_recycle=1800` so the first request after an idle night is not served on a
+  connection the database has already dropped.
+- **Guard test** asserts in a fresh interpreter that no removed dependency creeps back
+  into either entrypoint — validated against a planted regression, so it is not inert.
+- Entrypoint import floor **124.5 MB → 104.5 MB**; locked packages **85 → 61**.
+
+### Configuration
+- **Env-driven settings replace module-level argparse**, which consumed the arguments of
+  whatever process was running. The test suite could not collect a single test, and the
+  app could not be started under plain `uvicorn` or gunicorn.
+- Fixed `HOST_URL`, declared as `os.getenv('HOST_URL ')` with a trailing space in the
+  variable name, so it never read the variable it named.
+- Removed `os.getenv()` defaults from pydantic-settings fields, which evaluate once at
+  import and shadow the settings machinery meant to read them.
+
+### Fixed
+- `extract_uuid` returns a `str` while `Session.id` is a `UUID` column — `/resume_session`
+  would have raised on every invocation. Search result ids had the same mismatch.
+- `crud/user.py` imported `Session` from both `sqlalchemy.orm` and the models package;
+  the later import won, so the `db_sync: Session` annotation named the wrong type.
+- `delete_conversation_async` was declared `def` and returned an un-awaited coroutine.
+- Timestamps mixed the database's `func.now()` with values the application wrote in
+  `Etc/GMT-4`, making ordering and duration arithmetic across them wrong. All UTC now.
+- Background tasks are strongly referenced; asyncio holds only a weak reference, so an
+  in-flight task could be garbage collected mid-request.
+- Long responses are chunked on paragraph, line, then word boundaries instead of being
+  sliced every 2000 characters mid-word.
+- Deleted `dependencies/rate_limiter.py`, which imported `fastapi_limiter` and `aioredis`
+  — neither ever a declared dependency, so the module could not be imported at all.
+
+### Housekeeping
+- Migrated to `uv` with a committed lockfile; Python 3.9 → 3.12.
+- Restructured to `src/backend`, `src/frontend`, `src/llm` with tests at the top level,
+  matching the [Fullstack-FastAPI](https://github.com/yuting1214/Fullstack-FastAPI) template.
+- `ruff` configured and clean, from 530 errors.
+- Test suite added: 37 tests covering the command flow, search, authentication, HTTP
+  surface and import weight.
+
+## [0.1.0] - 2024-07-21
+
+Initial release. Discord LLM chatbot with FastAPI, PostgreSQL, Meilisearch hybrid search
+and LangChain, deployed as a Railway template.

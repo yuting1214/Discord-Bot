@@ -1,115 +1,175 @@
-##
+---
+title: Discord LLM Bot
+description: A Discord LLM chatbot with FastAPI, PostgreSQL and semantic search
+tags:
+  - discord
+  - fastapi
+  - postgresql
+  - pgvector
+  - python
+---
 
-* To-do List:
-```
-1. Integrate horizonal scale to multiple Chatbot.
-```
+# Discord LLM Bot
+
+A production-ready [Discord](https://discord.com/developers/docs) chatbot with persistent
+sessions, conversation memory and semantic search — built on
+[FastAPI](https://fastapi.tiangolo.com/), [PostgreSQL](https://www.postgresql.org/) and
+[pgvector](https://github.com/pgvector/pgvector), fully async.
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/PVL8qm?referralCode=jk_FgY&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+> **[CHANGELOG](./CHANGELOG.md)** — See what's changed between versions.
+
+## Features
+
+- **Slash commands** — single and group chat sessions, resume, and search
+- **Conversation memory** — a configurable window of prior turns is replayed each request
+- **Reasoning continuity** — `reasoning_details` are stored per message and returned
+  verbatim on the next turn, so a reasoning model resumes rather than restarts
+- **Semantic + keyword search** over your own history, on **pgvector** — no extra service
+- **Provider-agnostic LLM layer** — OpenAI and OpenRouter over one SDK, no LangChain
+- **Env-overridable models** — the template does not go stale when a provider ships a new one
+- **Two services, not three** — bot + PostgreSQL is the whole deployment
+- **Fully async** — commands, CRUD and the data layer
+- **SQLAlchemy 2.0** with async engine and `select()` style queries
+- **Session-based auth** protecting `/docs` and `/redoc`, with generated credentials
+- **`/health` endpoint** reporting database reachability, for platform healthchecks
+- **uv** for fast, reproducible dependency management
+- **Memory-tuned Docker image** — multi-stage build, pool sized for an idle service
+  (Railway bills by memory)
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `/start_session` | Start a new single session |
+| `/bot` | Send a message in the current single session |
+| `/start_group_session` | Start a new group session in this channel |
+| `/bot_group` | Send a message in the current group session |
+| `/resume_session` | Resume a previous single session by id |
+| `/resume_group_session` | Resume a previous group session by id |
+| `/search` | Search your own past messages |
+| `/search_group` | Search this channel's group messages |
 
 ## Project Structure
 
 ```
-Discord-Bot/
-├── backend/                      # Backend directory for the FastAPI application
-│   ├── fastapi/                  # Main application directory
-│   │   ├── __init__.py           # Initialization file for the app package
-│   │   ├── api/                  # Directory for API related code
-│   │   │   ├── __init__.py       # Initialization file for the API package
-│   │   │   ├── v1/               # Version 1 of the API
-│   │   │   │   ├── __init__.py   # Initialization file for the v1 API package
-│   │   │   │   ├── endpoints/    # Directory for API endpoint definitions
-│   │   │   │   │   ├── __init__.py          # Initialization file for endpoints package
-│   │   │   │   │   ├── text_generation.py   # Endpoints for text generation
-│   │   │   │   │   ├── llm_management.py    # Endpoints for LLM model management
-│   │   │   │   │   ├── message.py           # Endpoints for message management
-│   │   │   │   │   ├── user.py              # Endpoints for user management
-│   │   │   │   │   ├── session.py           # Endpoints for session management
-│   │   │   │   │   ├── command.py           # Endpoints for command management
-│   │   ├── dependencies/         # Directory for dependency management
-│   │   │   ├── __init__.py       # Initialization file for dependencies package
-│   │   │   ├── database.py       # Database connection and session management
-│   │   │   ├── rate_limiter.py   # Rate limiting logic
-│   │   ├── request_handler/      # Directory for HTTP request handling utilities
-│   │   │   ├── __init__.py
-│   │   │   ├── api_requests.py    
-│   │   ├── core/                 # Core application logic
-│   │   │   ├── __init__.py       # Initialization file for core package
-│   │   │   ├── constant.py       # Constant settings
-│   │   │   ├── config.py         # Configuration settings
-│   │   │   ├── init_setting.py   # Init settings with user's input
-│   │   ├── models/               # Directory for SQLAlchemy models
-│   │   │   ├── __init__.py       # Initialization file for models package
-│   │   │   ├── user.py           # User model
-│   │   │   ├── message.py        # Message model
-│   │   │   ├── session.py        # Session model
-│   │   │   ├── command.py        # Command model
-│   │   │   ├── command_log.py    # CommandLog model
-│   │   │   ├── conversation.py   # Conversation model
-│   │   │   ├── llm.py            # LLM model
-│   │   │   ├── llm_usage.py      # LLM usage model
-│   │   ├── schemas/              # Directory for Pydantic schemas
-│   │   │   ├── __init__.py       # Initialization file for schemas package
-│   │   │   ├── user.py           # Schemas for user data
-│   │   │   ├── session.py        # Schemas for session data
-│   │   │   ├── message.py        # Schemas for message data
-│   │   │   ├── command.py        # Schemas for command data
-│   │   │   ├── command_log.py    # Schemas for command log data
-│   │   │   ├── conversation.py   # Schemas for conversation data
-│   │   │   ├── llm.py            # Schemas for LLM data
-│   │   │   ├── llm_usage.py      # Schemas for LLM usage data
-│   │   ├── crud/                 # Directory for CRUD operations
-│   │   │   ├── __init__.py       # Initialization file for crud package
-│   │   │   ├── user.py           # CRUD for user management
-│   │   │   ├── session.py        # CRUD for session management
-│   │   │   ├── message.py        # CRUD for message management
-│   │   │   ├── command.py        # CRUD for command management
-│   │   │   ├── command_log.py    # CRUD for command log management
-│   │   │   ├── conversation.py   # CRUD for conversation management
-│   │   │   ├── llm.py            # CRUD for LLM management
-│   │   │   ├── llm_usage.py      # CRUD for LLM usage management
-│   │   ├── main.py               # Main FastAPI application file
-│   ├── discord/                  # Discord bot integration
-│   │   ├── __init__.py           # Initialization file for Discord package
-│   │   ├── operations/           # Directory for Low-level operation in Discord Bot
-│   │   │   ├── __init__.py       # Initialization file for the API package
-│   │   ├── bot.py                # Main bot architecture
-│   │   ├── register.py           # Command Register
-│   │   ├── run.py                # High-level Operations
-│   ├── meilisearch/              # Meilisearch integration
-│   │   ├── __init__.py           # Initialization file for Meilisearch package
-│   │   ├── search.py             # Search logic
-│   ├── data/                     # Directory for data when initiating DB
-│   │   ├── __init__.py           # Initialization file for data package
-│   │   ├── llm_models.py         # LLM models information
-│   ├── security/                 # Directory for authentication and authorization
-│   │   ├── __init__.py           # Initialization file for security package
-│   │   ├── authentication.py     # Authentication logic
-│   │   ├── authorization.py      # Authorization logic
-│   ├── tests/                    # Directory for test files
-│   │   ├── __init__.py           # Initialization file for tests package
-│   │   ├── test_user.py          # Test cases for user management
-│   │   ├── test_message.py       # Test cases for message management
-│   │   ├── test_session.py       # Test cases for session management
-│   │   ├── test_command.py       # Test cases for command management
-│   │   ├── test_llm.py           # Test cases for LLM model management
-│   │   ├── test_llm_usage.py     # Test cases for LLM usage management
-├── llm/
-│   ├── __init__.py               # Initialization file for LLM package
-│   ├── chain/                    # Folder for prompt handling
-│   │   ├── __init__.py           # Initialization file for chain package
-│   │   ├── llm_text_chain.py     # Module for LLM text generation integration
-│   ├── prompt/                   # Folder for prompt handling
-│   │   ├── __init__.py           # Initialization file for prompt package
-│   │   ├── base_text_templates.py# Stores base prompt templates for text generation
-│   │   ├── examples/             # Directory for few-shot examples used by the chain
-│   │   ├── deprecated/           # Directory for deprecated prompts
-│   ├── memory/                   # Folder for Memory Management
-│   │   ├── __init__.py           # Initialization file for memory package
-│   │   ├── memory_management.py  # Module for LLM memory management
-│   ├── search/                   # Folder for Search Integration
-│   │   ├── __init__.py           # Initialization file for search package
-│   │   ├── memory_management.py  # Module for LLM search management
-│   ├── vendors/                  # Directory for vendor-specific LLM configurations
-│   │   ├── __init__.py           # Initialization file for vendors package
-│   │   ├── openrouter.py         # Configurations and usage for OpenRouter as LLM provider
-├── .env                          # Environment variables file
+├── src/
+│   ├── backend/
+│   │   ├── constants.py         # Shared constants and UTC helper
+│   │   ├── data/                # Seed data (commands, LLM catalogue)
+│   │   ├── discord/             # Discord bot
+│   │   │   ├── bot.py           # Client, intents, message chunking
+│   │   │   ├── register.py      # Slash command registration
+│   │   │   ├── decorator_async.py  # Interaction handling
+│   │   │   ├── run_async.py     # Command orchestration
+│   │   │   └── service.py       # Database operations
+│   │   ├── fastapi/             # REST API and admin surface
+│   │   │   ├── main.py          # App entry point
+│   │   │   ├── api/v1/endpoints/  # Route handlers
+│   │   │   ├── core/            # Config and settings
+│   │   │   ├── crud/            # Async CRUD services
+│   │   │   ├── dependencies/    # Engine, session, DI
+│   │   │   ├── models/          # SQLAlchemy ORM models
+│   │   │   └── schemas/         # Pydantic schemas
+│   │   ├── search/              # pgvector hybrid search
+│   │   └── security/            # Docs authentication
+│   ├── frontend/login/          # Login page templates & static files
+│   └── llm/                     # Provider layer
+│       ├── client.py            # Cached OpenAI / OpenRouter clients
+│       ├── chat.py              # Completions, memory, reasoning
+│       ├── config.py            # Models and tuning
+│       ├── memory/              # Memory formatting
+│       └── prompt/              # System prompt templates
+├── tests/                       # Async test suite
+├── pyproject.toml               # Dependencies & project config
+├── Dockerfile                   # Multi-stage build with uv
+└── .env.example                 # Environment variable template
 ```
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
+- A Discord bot token — [Developer Portal](https://discord.com/developers/applications)
+  → **Applications** → **Bot** → **Token**
+- An OpenAI or OpenRouter API key
+
+> No privileged intents are required. You do **not** need to enable Message Content.
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/yuting1214/Discord-Bot.git
+cd Discord-Bot
+
+# Install dependencies
+uv sync
+
+# Copy environment template
+cp .env.example .env
+# Edit .env with your values
+
+# Run in development mode (SQLite, auto-reload)
+uv run python -m src.backend.fastapi.main
+```
+
+Then invite the bot to a server with the `applications.commands` and `bot` scopes,
+and run `/start_session` in any channel.
+
+### Running Tests
+
+```bash
+uv run pytest
+```
+
+### Docker
+
+```bash
+docker build -t discord-llm-bot .
+docker run --env-file .env -p 5000:5000 discord-llm-bot
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | **yes** | Discord bot token |
+| `OPENAI_API_KEY` | **yes** | Used for completions and embeddings |
+| `OPENROUTER_API_KEY` | if routing | Required when `LLM_PROVIDER=openrouter` |
+| `LLM_PROVIDER` | no | `openai` (default) or `openrouter` |
+| `OPENAI_MODEL` | no | Default `gpt-5.6-luna` |
+| `OPENROUTER_MODEL` | no | Default `openai/gpt-5.6-luna` |
+| `LLM_REASONING` | no | Request reasoning via OpenRouter. Default `true` |
+| `LLM_TEMPERATURE` | no | Default `0.5` |
+| `EMBEDDING_MODEL` | no | Default `text-embedding-3-small` |
+| `EMBEDDING_DIM` | no | Must match the model. Default `1536` |
+| `DATABASE_URL` | prod | PostgreSQL connection string |
+| `USER_NAME` / `PASSWORD` | no | Protects `/docs`. Generated and logged if unset |
+| `SECRET_KEY` | no | Signs session cookies. Generated per process if unset |
+| `ENV_MODE` | no | `dev` (SQLite) or `prod` (PostgreSQL) |
+| `HOST` / `PORT` | no | Defaults `127.0.0.1` / `5000`; `0.0.0.0` in prod |
+
+## How It Works
+
+Each slash command runs as two short database transactions with the slow work between
+them: the user's turn is committed, the embedding and completion calls run holding **no**
+database connection, then the model's turn is committed and indexed. This keeps a pooled
+connection from being pinned for the multi-second life of a completion.
+
+Search is scoped by an `index_key` — the channel id for group sessions, a hash of
+(user, channel) for single ones — so one user's history is never searchable from another's.
+
+## Learn More
+
+- [discord.py documentation](https://discordpy.readthedocs.io/)
+- [FastAPI documentation](https://fastapi.tiangolo.com/)
+- [pgvector](https://github.com/pgvector/pgvector)
+- [OpenRouter reasoning](https://openrouter.ai/docs/use-cases/reasoning-tokens)
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

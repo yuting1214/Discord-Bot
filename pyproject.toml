@@ -32,10 +32,10 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["backend", "frontend", "llm"]
+packages = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests"]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]

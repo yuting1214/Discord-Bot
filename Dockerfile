@@ -30,9 +30,7 @@ ENV MALLOC_TRIM_THRESHOLD_=100000
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/backend /app/backend
-COPY --from=builder /app/frontend /app/frontend
-COPY --from=builder /app/llm /app/llm
+COPY --from=builder /app/src /app/src
 
 ENV ENV_MODE=prod
 ENV HOST=0.0.0.0
@@ -40,4 +38,4 @@ EXPOSE 5000
 
 # Exec the venv python directly: `uv run` would keep a ~25MB wrapper process
 # resident in the container, which counts toward billed memory.
-CMD ["/app/.venv/bin/python", "-m", "backend.fastapi.main"]
+CMD ["/app/.venv/bin/python", "-m", "src.backend.fastapi.main"]
