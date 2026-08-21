@@ -37,7 +37,9 @@ referral link are unchanged.
   passing `None` into discord.py and surfacing an opaque `TypeError`.
 - **Command tree syncs from `setup_hook`**, not `on_ready`, which re-fires on every
   gateway reconnect against a sharply rate-limited endpoint.
-- **Added `GET /health`**, reporting database reachability rather than a bare `ok`.
+- **Added `GET /health`**, reporting database reachability rather than a bare `ok`, and
+  wired it as the platform healthcheck via `railway.json` with an `ON_FAILURE` restart
+  policy.
 
 ### Architecture
 - **The bot no longer calls its own HTTP API.** Every read and write went out over
