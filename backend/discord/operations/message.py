@@ -2,7 +2,7 @@ from typing import List, Dict
 from backend.fastapi.request_handler.api_requests import get_request, post_request
 from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async
 
-def create_message(channel_discord_id: str, session_id: str, conversation_id: str, user_id: str, message_type: str, user_input: str, resources_to_rollback: list) -> dict:
+def create_message(channel_discord_id: str, session_id: str, conversation_id: str, user_id: str, message_type: str, user_input: str, resources_to_rollback: list, reasoning_details: list | None = None) -> dict:
     message_data = {
         "channel_discord_id": channel_discord_id,
         "session_id": session_id,
@@ -10,13 +10,14 @@ def create_message(channel_discord_id: str, session_id: str, conversation_id: st
         "content": user_input,
         "message_type": message_type,
         "user_id": user_id,
+        "reasoning_details": reasoning_details,
     }
     new_message = post_request("messages/", message_data)
     resources_to_rollback.append(("create", "messages", {"resource_id": new_message["id"]}))
 
     return new_message
 
-async def create_message_async(channel_discord_id: str, session_id: str, conversation_id: str, user_id: str, message_type: str, user_input: str, resources_to_rollback: list) -> dict:
+async def create_message_async(channel_discord_id: str, session_id: str, conversation_id: str, user_id: str, message_type: str, user_input: str, resources_to_rollback: list, reasoning_details: list | None = None) -> dict:
     message_data = {
         "channel_discord_id": channel_discord_id,
         "session_id": session_id,
@@ -24,6 +25,7 @@ async def create_message_async(channel_discord_id: str, session_id: str, convers
         "content": user_input,
         "message_type": message_type,
         "user_id": user_id,
+        "reasoning_details": reasoning_details,
     }
     new_message = await post_request_async("messages/", message_data)
     resources_to_rollback.append(("create", "messages", {"resource_id": new_message["id"]}))

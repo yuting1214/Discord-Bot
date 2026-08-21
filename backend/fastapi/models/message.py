@@ -1,9 +1,12 @@
 import uuid
-from sqlalchemy import Column, Text, DateTime, String, ForeignKey
+
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+
 from backend.fastapi.dependencies.database import Base
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -16,6 +19,10 @@ class Message(Base):
     timestamp = Column(DateTime, nullable=False, default=func.now())
     content = Column(Text, nullable=False)
     message_type = Column(ENUM('user', 'model', name='message_type'), nullable=False)
+    # Reasoning trace returned with a model message. Replayed verbatim on the
+    # next turn so a reasoning model continues rather than restarts. Null for
+    # user messages and for non-reasoning models.
+    reasoning_details = Column(JSON, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="messages")

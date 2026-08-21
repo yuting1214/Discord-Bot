@@ -114,16 +114,21 @@ async def complete_session_chat(
             memory = [] if is_new_session else prepare_memory_for_llm(current_session_id)
             
             # the async function to call LLM API
-            llm_response = await llm_api_call_async(user_input, memory)
+            llm_result = await llm_api_call_async(user_input, memory)
 
-            # the async function to create a new message instance
-            new_message = create_message(channel_discord_id, current_session_id, current_conversation_id, current_user_id, "model", llm_response, resources_to_rollback)
+            # the async function to create a new message instance, retaining the
+            # reasoning trace so the next turn can resume it
+            new_message = create_message(
+                channel_discord_id, current_session_id, current_conversation_id, current_user_id,
+                "model", llm_result.text, resources_to_rollback,
+                reasoning_details=llm_result.reasoning_details,
+            )
 
             # the async function to update the conversation
             update_conversation(current_conversation_id, resources_to_rollback)
 
             return {
-                "llm_response": llm_response
+                "llm_response": llm_result.text
             }
 
     except Exception as e:

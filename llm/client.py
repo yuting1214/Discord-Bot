@@ -10,7 +10,7 @@ process's memory for no benefit.
 """
 
 import os
-from functools import lru_cache
+from functools import cache
 
 from openai import AsyncOpenAI, OpenAI
 
@@ -39,7 +39,7 @@ def _resolve(provider: str) -> tuple[str, str | None]:
     return api_key, base_url
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_client(provider: str) -> OpenAI:
     """Return the cached synchronous client for ``provider``."""
     api_key, base_url = _resolve(provider)
@@ -51,7 +51,7 @@ def get_client(provider: str) -> OpenAI:
     )
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_async_client(provider: str) -> AsyncOpenAI:
     """Return the cached asynchronous client for ``provider``."""
     api_key, base_url = _resolve(provider)

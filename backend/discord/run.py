@@ -86,16 +86,21 @@ def complete_session_chat(
 
             # Call LLM API with memory
             memory = [] if is_new_session else prepare_memory_for_llm(current_session_id)
-            llm_response = llm_api_call(user_input, memory)
+            llm_result = llm_api_call(user_input, memory)
 
-            # Create a new message instance
-            new_message = create_message(channel_id, current_session_id, current_conversation_id, current_user_id, "model", llm_response, resources_to_rollback)
+            # Create a new message instance, retaining the reasoning trace so the
+            # next turn can resume it
+            new_message = create_message(
+                channel_id, current_session_id, current_conversation_id, current_user_id,
+                "model", llm_result.text, resources_to_rollback,
+                reasoning_details=llm_result.reasoning_details,
+            )
 
             # Update the conversation with the new message ID and end time
             update_conversation(current_conversation_id, resources_to_rollback)
 
             return {
-                "llm_response": llm_response
+                "llm_response": llm_result.text
             }
 
     except Exception as e:

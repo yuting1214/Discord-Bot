@@ -16,11 +16,16 @@ load_dotenv()
 # "openai" or "openrouter"
 DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.6-luna")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.5"))
 REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
 MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
+# Reasoning is requested through OpenRouter's `reasoning` body field. The model
+# returns `reasoning_details`, which must be handed back verbatim on the next
+# turn for it to continue reasoning rather than restart.
+REASONING_ENABLED = os.getenv("LLM_REASONING", "true").lower() in ("1", "true", "yes", "on")
