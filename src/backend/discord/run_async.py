@@ -14,6 +14,7 @@ from src.backend.discord.utils import extract_uuid
 from src.backend.fastapi.dependencies.database import AsyncSessionLocal
 from src.backend.search.embeddings import embed
 from src.backend.search.service import (
+    DEFAULT_TOP_N,
     hybrid_search,
     index_document,
     to_conversation_ids_and_scores,
@@ -24,13 +25,16 @@ from src.llm.memory.memory_management import format_memory
 logger = logging.getLogger(__name__)
 
 
-def _render_search_results(results: list[dict]) -> str:
+def _render_search_results(results: list[dict], is_group: bool, shown: int) -> str:
     """Render hits as readable Discord text.
 
     Previously this was a raw json.dumps, which meant picking a session_id out of
     a wall of braces before /resume_session could be used at all.
     """
-    lines = [f"**{len(results)} result(s)**"]
+    total = len(results)
+    results = results[:shown]
+    header = f"**{len(results)} of {total} result(s)**" if total > len(results) else f"**{total} result(s)**"
+    lines = [header]
     for i, hit in enumerate(results, 1):
         score = hit.get("query_score")
         lines.append(
@@ -38,7 +42,8 @@ def _render_search_results(results: list[dict]) -> str:
             f"\n> {hit['llm_response']}"
             f"\n> score `{score}` · session `{hit['session_id']}`"
         )
-    lines.append("\nResume one with `/resume_session session_id:<id>`")
+    command = "resume_group_session" if is_group else "resume_session"
+    lines.append(f"\nResume one with `/{command} session_id:<id>`")
     return "\n".join(lines)
 
 
@@ -236,7 +241,7 @@ async def search_messages_and_list_sessions(
         results = _format_messages_to_search_results(raw_messages, scores)
         if not results:
             return {"message": "No search results found."}
-        return {"message": _render_search_results(results)}
+        return {"message": _render_search_results(results, is_group, DEFAULT_TOP_N)}
 
     except Exception as e:
         logger.exception("search_messages_and_list_sessions failed")

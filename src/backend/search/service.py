@@ -11,6 +11,7 @@ and keyword relevance, controlled by ``semantic_ratio``.
 
 import logging
 import math
+import os
 
 from sqlalchemy import Float, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +21,8 @@ from src.backend.search.embeddings import embed
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEMANTIC_RATIO = 0.5
-DEFAULT_TOP_N = 3
+DEFAULT_SEMANTIC_RATIO = float(os.getenv("SEARCH_SEMANTIC_RATIO", "0.5"))
+DEFAULT_TOP_N = int(os.getenv("SEARCH_TOP_N", "5"))
 
 
 async def index_document(
@@ -143,7 +144,8 @@ async def hybrid_search(
     embedding = await embed(query)
     dialect = db.bind.dialect.name if db.bind is not None else "postgresql"
     search = _search_postgres if dialect == "postgresql" else _search_python
-    results = await search(db, index_key, query, embedding, semantic_ratio, top_n)
+    # Fetch beyond the display limit so callers can say how many matched.
+    results = await search(db, index_key, query, embedding, semantic_ratio, top_n * 4)
     return [r for r in results if r["score"] > 0]
 
 

@@ -36,8 +36,18 @@ referral link are unchanged.
   They are now `message`, `query` and `session_id`, each with a description.
 - **Search results are readable.** They were a raw JSON dump, which meant picking a
   `session_id` out of a wall of braces before `/resume_session` could be used at all.
+- **Truncated searches say so.** The top-N cut was silent, so a correctly-ranked low-scoring
+  result looked as though it had never been indexed. The header now reads "3 of 6 result(s)",
+  and the limit is configurable via `SEARCH_TOP_N` (default raised 3 → 5).
+- **Group search points at the group resume command.** Its footer named `/resume_session`,
+  which cannot resume the group sessions it had just listed.
 
 ### Deploy Health
+- **No-op command syncs are skipped.** The tree was re-registered on every deploy, which
+  invalidates the definitions cached by connected Discord clients — they then answer the
+  next invocation with "This command is outdated, please try again in a few minutes" until
+  the user reloads. The tree is now compared with what Discord already has, and synced only
+  when it differs. A genuine command change still requires connected clients to refresh.
 - **Removed the `message_content` privileged intent.** Unless a deployer had also enabled
   it in the Discord Developer Portal — a step no documentation mentioned — login failed
   with `PrivilegedIntentsRequired` and the container died on boot. The bot serves slash

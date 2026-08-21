@@ -25,18 +25,63 @@ class DiscordClient(discord.Client):
         self.tree = discord.app_commands.CommandTree(self)
 
     async def setup_hook(self) -> None:
-        """Sync the command tree exactly once, before the gateway connects.
+        """Sync the command tree, but only when the definitions actually changed.
 
         Syncing from on_ready instead would re-run on every reconnect, and the
         sync endpoint is sharply rate limited.
+
+        Re-registering identical commands invalidates the definitions cached by
+        every connected Discord client, which then answers the next invocation
+        with "This command is outdated, please try again in a few minutes" until
+        the user reloads. Skipping a no-op sync keeps that to deploys that really
+        do change the commands.
         """
+        if not await self._definitions_changed():
+            logger.info("Application commands unchanged; skipping sync")
+            return
+
         synced = await self.tree.sync()
         logger.info("Synced %d application command(s)", len(synced))
+
+    async def _definitions_changed(self) -> bool:
+        """Compare the local command tree with what Discord already has."""
+        try:
+            registered = await self.tree.fetch_commands()
+        except discord.HTTPException:
+            logger.warning("Could not fetch registered commands; syncing anyway", exc_info=True)
+            return True
+
+        return _fingerprint(self.tree.get_commands()) != _fingerprint(registered)
 
     async def on_ready(self) -> None:
         logger.info("%s is connected to %d guild(s)", self.user, len(self.guilds))
         for guild in self.guilds:
             logger.debug("  guild: %s (id: %s)", guild.name, guild.id)
+
+
+def _fingerprint(commands) -> set[tuple]:
+    """A comparable signature of a command set, local or remote.
+
+    Local commands expose `parameters`, fetched ones expose `options`; both carry
+    the same fields, so one shape serves for the comparison.
+    """
+    signature = set()
+    for command in commands:
+        options = getattr(command, "parameters", None) or getattr(command, "options", []) or []
+        signature.add((
+            command.name,
+            command.description,
+            tuple(sorted(
+                (
+                    getattr(o, "display_name", None) or o.name,
+                    o.description,
+                    int(getattr(o.type, "value", o.type)),
+                    bool(o.required),
+                )
+                for o in options
+            )),
+        ))
+    return signature
 
 
 def chunk_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:

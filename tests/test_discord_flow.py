@@ -410,3 +410,45 @@ async def test_long_replies_are_truncated_with_an_ellipsis(wire, monkeypatch):
     )["message"]
     assert "…" in message
     assert "x" * 260 not in message
+
+
+async def test_group_search_points_at_the_group_resume_command(wire, monkeypatch):
+    """The footer used to name /resume_session even for group results, which do
+    not belong to that command."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="team standup notes", is_group=True, is_new_session=True
+    )
+    group = await run_async.search_messages_and_list_sessions(
+        **CTX, user_input="team standup notes", is_group=True
+    )
+    assert "/resume_group_session" in group["message"], group["message"]
+
+    await run_async.complete_session_chat(
+        **CTX, user_input="team standup notes", is_group=False, is_new_session=True
+    )
+    single = await run_async.search_messages_and_list_sessions(
+        **CTX, user_input="team standup notes", is_group=False
+    )
+    assert "/resume_session session_id" in single["message"]
+    assert "/resume_group_session" not in single["message"]
+
+
+async def test_truncated_results_say_how_many_matched(wire, monkeypatch):
+    """A silent top-N cut made a correctly-ranked result look like it was never
+    indexed at all."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    for text in ("alpha topic one", "alpha topic two", "alpha topic three",
+                 "alpha topic four", "alpha topic five", "alpha topic six"):
+        await run_async.complete_session_chat(
+            **CTX, user_input=text, is_group=False, is_new_session=False
+        )
+
+    message = (
+        await run_async.search_messages_and_list_sessions(
+            **CTX, user_input="alpha topic", is_group=False
+        )
+    )["message"]
+    # Six match, fewer are shown, and the header must admit it.
+    assert " of " in message, message.split("\n")[0]
+    assert message.startswith("**"), message[:40]
