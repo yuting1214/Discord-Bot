@@ -6,6 +6,8 @@ records land, that memory replays correctly across turns, and that a failure
 rolls the whole turn back rather than leaving half a conversation behind.
 """
 
+import json
+
 import pytest
 from sqlalchemy import func, select
 
@@ -16,10 +18,12 @@ from backend.fastapi.models import (
     Conversation,
     LLMUsage,
     Message,
+    SearchDocument,
     Server,
     Session,
     User,
 )
+from backend.search import service as search_service
 from llm.chat import ChatResult
 
 pytestmark = pytest.mark.asyncio
@@ -45,9 +49,22 @@ def wire(monkeypatch, session_factory):
     async def noop(*a, **k):
         return {}
 
-    monkeypatch.setattr(service, "initiate_index_async", noop)
-    monkeypatch.setattr(run_async, "insert_documents_async", noop)
+    # No provider call in tests: embeddings are deterministic stand-ins.
+    async def fake_embed(text):
+        return _toy_embedding(text)
+
+    monkeypatch.setattr(run_async, "embed", fake_embed)
+    monkeypatch.setattr(search_service, "embed", fake_embed)
     return session_factory
+
+
+def _toy_embedding(text: str) -> list[float]:
+    """A tiny bag-of-characters vector: similar strings point similar ways."""
+    vector = [0.0] * 26
+    for character in text.lower():
+        if "a" <= character <= "z":
+            vector[ord(character) - 97] += 1.0
+    return vector or [0.0] * 26
 
 
 async def count(factory, model) -> int:
@@ -219,3 +236,74 @@ async def test_search_accepts_string_ids_from_the_index(wire, monkeypatch):
 async def test_resume_tolerates_a_malformed_uuid(wire):
     async with wire() as db:
         assert await service.get_session_if_exists(db, "not-a-uuid") is None
+
+
+async def test_messages_are_indexed_for_search(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="the capital of france", is_group=False, is_new_session=True
+    )
+
+    async with wire() as db:
+        docs = (await db.execute(select(SearchDocument))).scalars().all()
+    assert len(docs) == 1
+    assert docs[0].content == "the capital of france"
+    assert docs[0].embedding, "embedding should be stored"
+
+
+async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    for text in ("how do i bake sourdough bread", "what is the capital of france"):
+        await run_async.complete_session_chat(
+            **CTX, user_input=text, is_group=False, is_new_session=False
+        )
+
+    result = await run_async.search_messages_and_list_sessions(
+        **CTX, user_input="capital of france", is_group=False
+    )
+    payload = json.loads(result["message"])
+    assert payload, result
+    assert payload[0]["user_input"] == "what is the capital of france", payload
+    assert payload[0]["query_score"] > 0
+
+
+async def test_search_is_scoped_per_user(wire, monkeypatch):
+    """A single session's history must not be searchable by another user."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="my private note", is_group=False, is_new_session=True
+    )
+
+    other = {**CTX, "user_discord_id": "user-2", "user_name": "someone-else"}
+    result = await run_async.search_messages_and_list_sessions(
+        **other, user_input="my private note", is_group=False
+    )
+    assert result["message"] == "No search results found.", result
+
+
+async def test_search_degrades_to_keyword_when_embedding_fails(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="pgvector replaces meilisearch", is_group=False, is_new_session=True
+    )
+
+    async def no_embedding(text):
+        return None
+    monkeypatch.setattr(search_service, "embed", no_embedding)
+
+    async with wire() as db:
+        index_key = (await db.execute(select(SearchDocument))).scalars().first().index_key
+        results = await search_service.hybrid_search(db, index_key, "pgvector")
+    assert results and results[0]["score"] > 0, "keyword-only search should still match"
+
+
+async def test_search_returns_nothing_for_an_unrelated_query(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="sourdough", is_group=False, is_new_session=True
+    )
+    async with wire() as db:
+        index_key = (await db.execute(select(SearchDocument))).scalars().first().index_key
+        # keyword-only, so an unrelated query scores zero and is filtered out
+        results = await search_service.hybrid_search(db, index_key, "zzz", semantic_ratio=0.0)
+    assert results == []

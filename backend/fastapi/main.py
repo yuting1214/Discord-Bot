@@ -26,16 +26,12 @@ from backend.fastapi.api.v1.endpoints import (
 from backend.fastapi.core.init_settings import global_settings as settings
 from backend.fastapi.crud.command import create_init_command_async
 from backend.fastapi.dependencies.database import AsyncSessionLocal, init_db
-from backend.meilisearch.setup import enable_experimental_features
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize the database connection
     init_db()
-
-    # Enable Meilisearch experimental metrics
-    meilisearch_message = enable_experimental_features()
 
     async with AsyncSessionLocal() as db:
         try:

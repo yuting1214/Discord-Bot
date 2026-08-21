@@ -18,9 +18,8 @@ dependencies = [
     "jinja2",
     "python-multipart",
     "httpx",
-    "requests",
     "pytz",
-    "meilisearch",
+    "pgvector>=0.3",
     # OpenAI and OpenRouter share a wire protocol, so one SDK serves both.
     "openai>=1.100",
     "uvloop; sys_platform != 'win32'",

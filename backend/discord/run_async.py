@@ -2,21 +2,22 @@
 
 Each command runs as short database transactions around the slow work, rather
 than one long-lived unit: an LLM completion takes seconds, and holding a pooled
-connection open across it is what exhausts the pool under concurrency.
+connection open across it is what exhausts the pool under concurrency. Embedding
+calls are treated the same way.
 """
 
 import json
 import logging
 
 from backend.discord import service
-from backend.discord.utils import extract_uuid, generate_uuid_key
+from backend.discord.utils import extract_uuid
 from backend.fastapi.dependencies.database import AsyncSessionLocal
-from backend.meilisearch.format import (
-    format_documents_to_search_results,
-    format_search_results_to_conversation_ids_and_scores,
+from backend.search.embeddings import embed
+from backend.search.service import (
+    hybrid_search,
+    index_document,
+    to_conversation_ids_and_scores,
 )
-from backend.meilisearch.insert import insert_documents_async
-from backend.meilisearch.search import hybrid_search_async
 from llm.chat import achat
 from llm.memory.memory_management import format_memory
 
@@ -88,29 +89,14 @@ async def complete_session_chat(
                     if is_new_session
                     else format_memory(await service.get_latest_messages(db, session.id))
                 )
-                index_key = (
-                    str(channel.id) if is_group else generate_uuid_key(user.id, channel.id)
-                )
+                index_key = service.search_index_key(user.id, channel.id, is_group)
                 session_id, conversation_id, user_id = session.id, conversation.id, user.id
 
-        # Index outside the transaction: a search-index failure must not roll
-        # back the user's message.
-        try:
-            await insert_documents_async(
-                index_key,
-                [{
-                    "conversation_id": str(conversation_id),
-                    "user_input": user_input,
-                    "session_id": str(session_id),
-                }],
-            )
-        except Exception:
-            logger.exception("Failed to index message for search; continuing")
-
-        # No database connection is held across the completion.
+        # Both network calls run with no database connection held.
+        embedding = await embed(user_input)
         result = await achat(user_input, memory)
 
-        # Transaction 2: record the model's turn.
+        # Transaction 2: record the model's turn and make the exchange searchable.
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 await service.create_message(
@@ -126,6 +112,14 @@ async def complete_session_chat(
                 await service.end_conversation(db, conversation_id)
                 await service.record_llm_usage(
                     db, session_id, result.model, result.input_tokens, result.output_tokens
+                )
+                await index_document(
+                    db,
+                    index_key=index_key,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    content=user_input,
+                    embedding=embedding,
                 )
 
         return {"llm_response": result.text}
@@ -200,22 +194,16 @@ async def search_messages_and_list_sessions(
                 channel = await service.get_or_create_channel(
                     db, server.id, channel_discord_id, channel_name, user, is_group
                 )
-                index_key = str(channel.id) if is_group else generate_uuid_key(user.id, channel.id)
-
-        documents = await hybrid_search_async(index_key, user_input)
-        conversation_results = format_documents_to_search_results(documents)
-        conversation_ids, scores = format_search_results_to_conversation_ids_and_scores(
-            conversation_results
-        )
-
-        if not conversation_ids:
-            return {"message": "No search results found."}
+                index_key = service.search_index_key(user.id, channel.id, is_group)
 
         async with AsyncSessionLocal() as db:
+            results = await hybrid_search(db, index_key, user_input)
+            conversation_ids, scores = to_conversation_ids_and_scores(results)
+            if not conversation_ids:
+                return {"message": "No search results found."}
             raw_messages = await service.get_messages_by_conversations(db, conversation_ids)
 
-        results = _format_messages_to_search_results(raw_messages, scores)
-        return {"message": json.dumps(results, indent=4)}
+        return {"message": json.dumps(_format_messages_to_search_results(raw_messages, scores), indent=4)}
 
     except Exception as e:
         logger.exception("search_messages_and_list_sessions failed")

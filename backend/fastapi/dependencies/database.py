@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -27,4 +27,11 @@ async def get_async_db():
         yield session
 
 def init_db():
+    # pgvector must exist before create_all: search_documents.embedding is
+    # declared as `vector` on PostgreSQL and the DDL fails without it. The
+    # extension ships with Railway's postgres-ssl image, so this only enables it.
+    if sync_engine.dialect.name == "postgresql":
+        with sync_engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
     Base.metadata.create_all(bind=sync_engine)

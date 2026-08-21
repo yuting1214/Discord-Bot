@@ -34,7 +34,6 @@ from backend.fastapi.models import (
     Session,
     User,
 )
-from backend.meilisearch.insert import initiate_index_async
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +101,16 @@ async def get_or_create_channel(
     )
     db.add(channel)
     await db.flush()
-
-    # The search index is keyed per group channel, or per (user, channel) pair
-    # for single sessions, so that one user's history is never searchable by
-    # another.
-    index_key = str(channel.id) if is_group else generate_uuid_key(user.id, channel.id)
-    await initiate_index_async(index_key)
     return channel
+
+
+def search_index_key(user_id: UUID, channel_id: UUID, is_group: bool) -> str:
+    """Scope searches to a group channel, or to one user within a channel.
+
+    Single sessions are keyed per (user, channel) so one user's history is never
+    searchable from another's.
+    """
+    return str(channel_id) if is_group else generate_uuid_key(user_id, channel_id)
 
 
 async def find_active_sessions(

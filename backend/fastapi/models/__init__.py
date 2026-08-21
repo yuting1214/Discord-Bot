@@ -5,6 +5,7 @@ from .conversation import Conversation
 from .llm import LLM
 from .llm_usage import LLMUsage
 from .message import Message
+from .search_document import SearchDocument
 from .server import Server
 from .session import Session
 from .user import User
