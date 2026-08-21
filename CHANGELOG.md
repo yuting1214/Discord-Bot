@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Database
+- **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`
+  18.6 extended with `vchord_bm25`, keeping pgvector, pgBackRest and the SSL wrapper.
+- **6.5 MB idle** (47.7 MB on Railway). `pg_tokenizer` was evaluated and rejected: it
+  costs ~331 MB resident *and* ranks CJK worse, because its `unicode_segmentation`
+  emits character unigrams — on a query for 麵包 it ranked two decoys above the correct
+  document.
+- **CJK via character bigrams** (`analyzer.sql`), the strategy Lucene's CJKAnalyzer
+  uses, generated in SQL at no measurable cost.
+
 ## [0.2.0] - 2026-08-21
 
 The template is rebranded and made public at this release. The deploy slug and
