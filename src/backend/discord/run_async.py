@@ -6,10 +6,10 @@ connection open across it is what exhausts the pool under concurrency. Embedding
 calls are treated the same way.
 """
 
-import json
 import logging
 
 from src.backend.discord import service
+from src.backend.discord.errors import describe
 from src.backend.discord.utils import extract_uuid
 from src.backend.fastapi.dependencies.database import AsyncSessionLocal
 from src.backend.search.embeddings import embed
@@ -22,6 +22,24 @@ from src.llm.chat import achat
 from src.llm.memory.memory_management import format_memory
 
 logger = logging.getLogger(__name__)
+
+
+def _render_search_results(results: list[dict]) -> str:
+    """Render hits as readable Discord text.
+
+    Previously this was a raw json.dumps, which meant picking a session_id out of
+    a wall of braces before /resume_session could be used at all.
+    """
+    lines = [f"**{len(results)} result(s)**"]
+    for i, hit in enumerate(results, 1):
+        score = hit.get("query_score")
+        lines.append(
+            f"\n**{i}.** {hit['user_input']}"
+            f"\n> {hit['llm_response']}"
+            f"\n> score `{score}` · session `{hit['session_id']}`"
+        )
+    lines.append("\nResume one with `/resume_session session_id:<id>`")
+    return "\n".join(lines)
 
 
 def _format_messages_to_search_results(messages: list[dict], scores: list[float]) -> list[dict]:
@@ -126,7 +144,7 @@ async def complete_session_chat(
 
     except Exception as e:
         logger.exception("complete_session_chat failed")
-        return {"error": str(e)}
+        return {"error": str(e), "hint": describe(e)}
 
 
 async def resume_session(
@@ -142,7 +160,12 @@ async def resume_session(
 ) -> dict:
     resume_session_id = extract_uuid(user_input)
     if not resume_session_id:
-        return {"message": "Invalid UUID input."}
+        return {
+            "message": (
+                "That does not look like a session ID. Run `/search` (or "
+                "`/search_group`) and copy the `session_id` from a result."
+            )
+        }
 
     try:
         async with AsyncSessionLocal() as db:
@@ -157,7 +180,12 @@ async def resume_session(
 
                 target = await service.get_session_if_exists(db, resume_session_id)
                 if target is None:
-                    return {"message": f"Session - {resume_session_id} does not exist!"}
+                    return {
+                        "message": (
+                            f"No session found with ID `{resume_session_id}`. "
+                            "Run `/search` to list sessions you can resume."
+                        )
+                    }
 
                 for active in await service.find_active_sessions(
                     db, channel_discord_id, user.id, is_group
@@ -170,7 +198,7 @@ async def resume_session(
 
     except Exception as e:
         logger.exception("resume_session failed")
-        return {"error": str(e), "message": str(e)}
+        return {"error": str(e), "hint": describe(e), "message": describe(e)}
 
 
 async def search_messages_and_list_sessions(
@@ -203,8 +231,11 @@ async def search_messages_and_list_sessions(
                 return {"message": "No search results found."}
             raw_messages = await service.get_messages_by_conversations(db, conversation_ids)
 
-        return {"message": json.dumps(_format_messages_to_search_results(raw_messages, scores), indent=4)}
+        results = _format_messages_to_search_results(raw_messages, scores)
+        if not results:
+            return {"message": "No search results found."}
+        return {"message": _render_search_results(results)}
 
     except Exception as e:
         logger.exception("search_messages_and_list_sessions failed")
-        return {"error": str(e), "message": str(e)}
+        return {"error": str(e), "hint": describe(e), "message": describe(e)}

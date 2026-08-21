@@ -5,6 +5,7 @@ from functools import wraps
 import discord
 
 from src.backend.discord.bot import DiscordClient, Sender
+from src.backend.discord.errors import GENERIC, describe
 from src.backend.discord.run_async import (
     complete_session_chat,
     resume_session,
@@ -53,9 +54,24 @@ async def _reject_if_dm(interaction: discord.Interaction) -> bool:
     return False
 
 
+async def _fail(interaction: discord.Interaction, hint: str) -> None:
+    """Report a failure to the invoking user only.
+
+    Ephemeral so a broken key does not spam the channel, and worded as a hint at
+    what to fix rather than a bare apology. The underlying exception stays in the
+    logs; it can quote the API key or the connection string.
+    """
+    try:
+        await interaction.followup.send(f"> **Command failed**\n{hint}", ephemeral=True)
+    except discord.HTTPException:
+        logger.exception("Could not deliver the error message to Discord")
+
+
 async def _respond(interaction: discord.Interaction, sender: Sender, user_input: str, result: dict) -> None:
     if result.get("error"):
         logger.error("Command failed: %s", result["error"])
+        await _fail(interaction, result.get("hint") or GENERIC)
+        return
     await sender.send_message(interaction, user_input, result["message"])
 
 
@@ -98,21 +114,14 @@ async def handle_long_operation(
         )
         if "error" in llm_response_dict:
             logger.error("Chat failed: %s", llm_response_dict["error"])
-            await interaction.followup.send(
-                "> **Error: Something went wrong, please try again later!**"
-            )
+            await _fail(interaction, llm_response_dict.get("hint") or GENERIC)
             return
         await sender.send_message(interaction, user_input, llm_response_dict["llm_response"])
-    except Exception:
+    except Exception as e:
         # Runs detached from the command, so an unlogged failure here would be
         # invisible on the server and silent to the user.
         logger.exception("Unhandled error while completing a session chat")
-        try:
-            await interaction.followup.send(
-                "> **Error: Something went wrong, please try again later!**"
-            )
-        except discord.HTTPException:
-            logger.exception("Could not deliver the error message to Discord")
+        await _fail(interaction, describe(e))
 
 
 def _simple_command_decorator(sender: Sender, is_group: bool, operation):
@@ -133,11 +142,9 @@ def _simple_command_decorator(sender: Sender, is_group: bool, operation):
                     ctx["user_name"], user_input, is_group
                 )
                 await _respond(interaction, sender, user_input, message_dict)
-            except Exception:
+            except Exception as e:
                 logger.exception("Unhandled error in %s", operation.__name__)
-                await interaction.followup.send(
-                    "> **Error: Something went wrong, please try again later!**"
-                )
+                await _fail(interaction, describe(e))
         return wrapper
     return decorator
 

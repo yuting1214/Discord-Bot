@@ -6,7 +6,6 @@ records land, that memory replays correctly across turns, and that a failure
 rolls the whole turn back rather than leaving half a conversation behind.
 """
 
-import json
 
 import pytest
 from sqlalchemy import func, select
@@ -196,11 +195,16 @@ async def test_resume_reactivates_a_named_session(wire, monkeypatch):
 
 
 async def test_resume_rejects_bad_input(wire):
-    assert (await run_async.resume_session(**CTX, user_input="nonsense", is_group=False))["message"] == "Invalid UUID input."
+    """A rejection must say what a valid input looks like and where to get one."""
+    bad = (await run_async.resume_session(**CTX, user_input="nonsense", is_group=False))["message"]
+    assert "session ID" in bad
+    assert "/search" in bad, "must point at the command that lists session ids"
+
     missing = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
-    assert "does not exist" in (
-        await run_async.resume_session(**CTX, user_input=missing, is_group=False)
-    )["message"]
+    gone = (await run_async.resume_session(**CTX, user_input=missing, is_group=False))["message"]
+    assert "No session found" in gone
+    assert missing in gone, "echo the id so the user can see what was tried"
+    assert "/search" in gone
 
 
 async def test_repeat_user_does_not_duplicate_records(wire, monkeypatch):
@@ -261,10 +265,14 @@ async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
     result = await run_async.search_messages_and_list_sessions(
         **CTX, user_input="capital of france", is_group=False
     )
-    payload = json.loads(result["message"])
-    assert payload, result
-    assert payload[0]["user_input"] == "what is the capital of france", payload
-    assert payload[0]["query_score"] > 0
+    message = result["message"]
+    assert "what is the capital of france" in message, message
+    # The rendered output must carry a session id and say how to use it,
+    # otherwise /resume_session is unusable without reading the database.
+    assert "session `" in message
+    assert "/resume_session" in message
+    # The relevant hit should come first.
+    assert message.index("capital of france") < message.index("sourdough")
 
 
 async def test_search_is_scoped_per_user(wire, monkeypatch):

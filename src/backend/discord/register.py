@@ -16,41 +16,57 @@ def build_client() -> DiscordClient:
     sender = Sender()
 
     @client.tree.command(name="start_session", description="Start a New Single Session.")
+    @discord.app_commands.rename(user_input="message")
+    @discord.app_commands.describe(user_input="What you want to ask. Starts a fresh single session.")
     @session_chat_async_decorator(client, sender, is_group=False, is_new_session=True)
     async def start_single_session(interaction: discord.Interaction, *, user_input: str):
         pass  
 
     @client.tree.command(name="bot", description="Send a Message in an Existing Single Session.")
+    @discord.app_commands.rename(user_input="message")
+    @discord.app_commands.describe(user_input="What you want to say in your current single session.")
     @session_chat_async_decorator(client, sender, is_group=False, is_new_session=False)
     async def single_chat(interaction: discord.Interaction, *, user_input: str):
         pass  
 
     @client.tree.command(name="start_group_session", description="Start a New Group Session.")
+    @discord.app_commands.rename(user_input="message")
+    @discord.app_commands.describe(user_input="What you want to ask. Starts a fresh group session in this channel.")
     @session_chat_async_decorator(client, sender, is_group=True, is_new_session=True)
     async def start_group_session(interaction: discord.Interaction, *, user_input: str):
         pass  
 
     @client.tree.command(name="bot_group", description="Send a Message in an Existing Group Session.")
+    @discord.app_commands.rename(user_input="message")
+    @discord.app_commands.describe(user_input="What you want to say in this channel's group session.")
     @session_chat_async_decorator(client, sender, is_group=True, is_new_session=False)
     async def group_chat(interaction: discord.Interaction, *, user_input: str):
         pass 
 
     @client.tree.command(name="resume_session", description="Resume a Previous Single Session")
+    @discord.app_commands.rename(user_input="session_id")
+    @discord.app_commands.describe(user_input="ID of the session to resume — copy one from /search results.")
     @session_resume_async_decorator(client, sender, is_group=False)
     async def resume_session(interaction: discord.Interaction, *, user_input: str):
         pass  
 
     @client.tree.command(name="resume_group_session", description="Resume a Previous Group Session")
+    @discord.app_commands.rename(user_input="session_id")
+    @discord.app_commands.describe(user_input="ID of the group session to resume — copy one from /search_group.")
     @session_resume_async_decorator(client, sender, is_group=True)
     async def resume_group_session(interaction: discord.Interaction, *, user_input: str):
         pass 
 
     @client.tree.command(name="search", description="Search previous messages in Single Sessions.")
+    @discord.app_commands.rename(user_input="query")
+    @discord.app_commands.describe(user_input="What to look for in your past messages.")
     @search_async_decorator(client, sender, is_group=False)
     async def search(interaction: discord.Interaction, *, user_input: str):
         pass 
 
     @client.tree.command(name="search_group", description="Search previous messages in Group Sessions.")
+    @discord.app_commands.rename(user_input="query")
+    @discord.app_commands.describe(user_input="What to look for in this channel's group messages.")
     @search_async_decorator(client, sender, is_group=True)
     async def search_group(interaction: discord.Interaction, *, user_input: str):
         pass 

@@ -25,6 +25,18 @@ referral link are unchanged.
 - Repository history was re-rooted before publication: a tracked `.env` carried live
   credentials in 12 of 15 revisions, including a bot token present from the first commit.
 
+### Usability
+- **Failures now say what to fix.** Every error reached Discord as "Something went wrong",
+  so a stale API key was indistinguishable from a database outage. Errors are classified
+  and reported as a hint naming the setting to check — and sent ephemerally, so a broken
+  key does not spam the channel. The underlying exception stays in the logs, because it
+  quotes the API key and the connection string.
+- **Command parameters are named and described.** Every command took a parameter literally
+  called `user_input`, so `/resume_session` gave no indication it wanted a session ID.
+  They are now `message`, `query` and `session_id`, each with a description.
+- **Search results are readable.** They were a raw JSON dump, which meant picking a
+  `session_id` out of a wall of braces before `/resume_session` could be used at all.
+
 ### Deploy Health
 - **Removed the `message_content` privileged intent.** Unless a deployer had also enabled
   it in the Discord Developer Portal — a step no documentation mentioned — login failed
