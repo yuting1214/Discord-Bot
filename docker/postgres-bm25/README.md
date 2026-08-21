@@ -95,10 +95,50 @@ ORDER BY bm25 <&> bm25_catalog.to_bm25query('messages_bm25_idx', to_bm25('search
 LIMIT 5;
 ```
 
-### The CJK trade-off
+### CJK: bigrams, and why they beat pg_tokenizer here
 
-This is the one thing `pg_tokenizer` bought that Postgres does not replace.
-Postgres' text search does not segment Chinese, Japanese or Korean:
+Postgres' text search does not segment Chinese, Japanese or Korean, so CJK runs
+are indexed as overlapping character **bigrams** — the strategy Lucene's
+CJKAnalyzer uses. `analyzer.sql` does this automatically.
+
+That is not a compromise. `pg_tokenizer`'s `unicode_segmentation` emits character
+**unigrams**, and individual CJK characters are far too common to discriminate.
+Measured on a corpus with two decoys containing 麵 and 包 non-adjacently, query
+`麵包` (bread):
+
+| analyzer | rank 1 | rank 2 | rank 3 |
+|---|---|---|---|
+| pg_tokenizer (unigrams) | ✗ 這家**麵**店的**包**子 `-0.7409` | ✗ **包**裝這個**麵**條 `-0.7134` | ✓ 酸種**麵包** `-0.6418` |
+| this image (bigrams) | ✓ 酸種**麵包** `-1.0724` | `0.0000` | `0.0000` |
+
+pg_tokenizer ranks **both decoys above the correct document**. Proper CJK word
+segmentation from pg_tokenizer needs a Lindera model on top, which is more
+configuration and more memory again.
+
+### Benchmark
+
+20,000 mixed English/Chinese documents, identical corpus and queries, native arm64:
+
+| | pg_tokenizer | this image |
+|---|---|---|
+| idle memory | 336.6 MB | **6.5 MB** |
+| after workload | 336.9 MB | **6.8 MB** |
+| ingest 20k docs | **3.5 s** | 12.3 s |
+| index build | **368 ms** | 418 ms |
+| search, 200 varying queries | **0.37 ms** each | 6.5 ms each |
+| tokenize only, per call | **0.03 ms** | 0.94 ms |
+| CJK precision | ✗ decoys outrank | ✓ correct |
+
+pg_tokenizer is genuinely faster — roughly 17× per search and 3.5× on ingest. The
+trade is 330 MB of permanently resident memory and worse CJK ranking. At 6.5 ms a
+search this is not a bottleneck for a chat application, and the memory is the
+difference between a database service that is cheap to leave running and one that
+is not. If your workload is high-QPS search where 6 ms matters more than 330 MB,
+install pg_tokenizer and configure a Lindera model for CJK.
+
+### The original CJK note
+
+Postgres' text search alone, without the bigram step, does not segment CJK:
 
 ```
 to_tsvector('english', 'sourdough bread starter')
