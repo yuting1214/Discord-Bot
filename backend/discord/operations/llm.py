@@ -1,35 +1,38 @@
-from typing import List, Tuple
+from typing import List
+
+from backend.constants import MEMORY_WINDOW_SIZE
 from backend.fastapi.request_handler.api_requests import get_request
 from backend.fastapi.request_handler.api_requests_async import get_request_async
-from backend.constants import MEMORY_WINDOW_SIZE
-from llm.llm_text_chain import llm_OpenRouter_memory_chain, llm_OpenAI_memory_chain, llm_OpenAI_memory_chain_async
+from llm.chat import Message, achat, chat
 from llm.memory.memory_management import format_memory
+
 
 def llm_api_call(user_input: str, memory: list) -> str:
     try:
-        llm_response = llm_OpenAI_memory_chain(user_input, memory)
-        return llm_response
+        return chat(user_input, memory).text
     except Exception as e:
-        raise RuntimeError(f"Failed to process LLM response: {str(e)}")
-    
+        raise RuntimeError(f"Failed to process LLM response: {str(e)}") from e
+
+
 async def llm_api_call_async(user_input: str, memory: list) -> str:
     try:
-        llm_response = await llm_OpenAI_memory_chain_async(user_input, memory)
-        return llm_response
+        result = await achat(user_input, memory)
+        return result.text
     except Exception as e:
-        raise RuntimeError(f"Failed to process LLM response: {str(e)}")
+        raise RuntimeError(f"Failed to process LLM response: {str(e)}") from e
 
 
-def prepare_memory_for_llm(session_id: str, window_size: int = MEMORY_WINDOW_SIZE) -> List[Tuple[str, str]]:
+def prepare_memory_for_llm(session_id: str, window_size: int = MEMORY_WINDOW_SIZE) -> List[Message]:
     latest_messages = get_request("messages/latest/", params={"session_id": session_id, "n": window_size})
     return format_memory(latest_messages)
 
+
 async def prepare_memory_for_llm_async(
-    session_id: str, 
+    session_id: str,
     window_size: int = MEMORY_WINDOW_SIZE
-) -> List[Tuple[str, str]]:
+) -> List[Message]:
     # Fetch latest messages asynchronously
     latest_messages = await get_request_async("messages/latest/", params={"session_id": session_id, "n": window_size})
-    
+
     # Format memory
     return format_memory(latest_messages)
