@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 5000
 
+    # Signs session cookies. Generated per process when unset, which means
+    # sessions do not survive a restart; set it to keep them.
+    SECRET_KEY: str = ""
+
     # API KEY
     OPENAI_API_KEY: str
 

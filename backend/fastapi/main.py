@@ -1,4 +1,6 @@
+import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from threading import Thread
 
@@ -26,12 +28,20 @@ from backend.fastapi.api.v1.endpoints import (
 from backend.fastapi.core.init_settings import global_settings as settings
 from backend.fastapi.crud.command import create_init_command_async
 from backend.fastapi.dependencies.database import AsyncSessionLocal, init_db
+from backend.security.authentication import log_credentials_once
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+    )
+
     # Initialize the database connection
     init_db()
+
+    # Surface generated docs credentials before anything can need them.
+    log_credentials_once()
 
     async with AsyncSessionLocal() as db:
         try:
@@ -75,9 +85,11 @@ async def add_doc_protect(request: Request, call_next):
     response = await call_next(request)
     return response
 # Add session middleware with a custom expiration time (e.g., 30 minutes)
-app.add_middleware(SessionMiddleware, 
-                   secret_key="your_secret_key", 
-                   max_age=18000)  # 18000 seconds = 300 minutes
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY or secrets.token_urlsafe(32),
+    max_age=18000,  # 18000 seconds = 300 minutes
+)
 
 # Add the routers to the FastAPI app
 app.include_router(doc.router, prefix="", tags=["doc"])

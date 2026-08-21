@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.fastapi.dependencies.database import get_async_db
 from backend.security.authentication import authenticate_user
 
 router = APIRouter()
@@ -10,6 +13,21 @@ templates = Jinja2Templates(directory="frontend/login/templates")
 @router.get("/")
 def read_root():
     return {"message": "Hello, you're onboard!"}
+
+
+@router.get("/health")
+async def health(db: AsyncSession = Depends(get_async_db)):
+    """Liveness probe for the platform healthcheck.
+
+    Reports on the database rather than returning a bare ok, so a container that
+    is up but cannot reach PostgreSQL is not counted as healthy.
+    """
+    try:
+        await db.execute(text("SELECT 1"))
+        database = "ok"
+    except Exception:
+        database = "unavailable"
+    return {"status": "ok" if database == "ok" else "degraded", "database": database}
 
 # Endpoint for login form
 @router.get("/login", response_class=HTMLResponse)
