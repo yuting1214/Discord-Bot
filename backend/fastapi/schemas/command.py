@@ -1,0 +1,15 @@
+from pydantic import BaseModel
+from uuid import UUID
+
+class CommandBase(BaseModel):
+    name: str
+    description: str
+
+class CommandCreate(CommandBase):
+    pass
+
+class CommandSchema(CommandBase):
+    id: UUID
+
+    class Config:
+        from_attributes = True
