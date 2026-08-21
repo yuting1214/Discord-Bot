@@ -1,14 +1,14 @@
-from typing import List, Optional
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import CommandLog
-from backend.fastapi.schemas import (
-    CommandLogUpdate, CommandLogCreate
-)
+from backend.fastapi.schemas import CommandLogCreate, CommandLogUpdate
+
 
 class CommandLogService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -29,7 +29,7 @@ class CommandLogService:
         await self.db_async.refresh(db_command_log)
         return db_command_log
 
-    def get_command_logs(self, skip: int = 0, limit: int = 30) -> List[CommandLog]:
+    def get_command_logs(self, skip: int = 0, limit: int = 30) -> list[CommandLog]:
         return self.db_sync.query(CommandLog).offset(skip).limit(limit).all()
 
     def get_command_log(self, command_log_id: UUID) -> CommandLog:

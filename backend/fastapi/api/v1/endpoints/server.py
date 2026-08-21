@@ -1,15 +1,9 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
 from uuid import UUID
-from typing import List
 
-from backend.fastapi.schemas import (
-    ServerCreate,
-    ServerBase,
-    ServerSchema
-)
-from backend.fastapi.crud import (
-    ServerService
-)
+from fastapi import APIRouter, Depends
+
+from backend.fastapi.crud import ServerService
+from backend.fastapi.schemas import ServerBase, ServerCreate, ServerSchema
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -19,7 +13,7 @@ router_async = APIRouter()
 def create_server(server_data: ServerCreate, service: ServerService = Depends()):
     return service.create_server(server_data)
 
-@router_sync.get("/servers/", response_model=List[ServerSchema])
+@router_sync.get("/servers/", response_model=list[ServerSchema])
 def get_servers(skip: int = 0, limit: int = 30, service: ServerService = Depends()):
     return service.get_servers(skip, limit)
 

@@ -1,14 +1,14 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import Command
-from backend.fastapi.schemas import (
-    CommandCreate, CommandBase
-)
+from backend.fastapi.schemas import CommandBase, CommandCreate
+
 
 class CommandService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -29,7 +29,7 @@ class CommandService:
         await self.db_async.refresh(db_command)
         return db_command
 
-    def get_commands(self, skip: int = 0, limit: int = 30) -> List[Command]:
+    def get_commands(self, skip: int = 0, limit: int = 30) -> list[Command]:
         return self.db_sync.query(Command).offset(skip).limit(limit).all()
 
     def get_command(self, command_id: UUID) -> Command:

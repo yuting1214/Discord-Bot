@@ -1,14 +1,11 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from backend.fastapi.dependencies.database import get_sync_db
 from backend.fastapi.models import LLM
-from backend.fastapi.schemas import (
-    LLMCreate,
-    LLMUpdate,
-    LLMSchema
-)
+from backend.fastapi.schemas import LLMCreate, LLMSchema, LLMUpdate
 
 router = APIRouter()
 
@@ -27,11 +24,11 @@ def read_llm(llm_id: UUID, db: Session = Depends(get_sync_db)):
         raise HTTPException(status_code=404, detail="LLM not found")
     return db_llm
 
-@router.get("/llms/", response_model=List[LLMSchema])
+@router.get("/llms/", response_model=list[LLMSchema])
 def read_llms(skip: int = 0, limit: int = 10, db: Session = Depends(get_sync_db)):
     return db.query(LLM).offset(skip).limit(limit).all()
 
-@router.get("/llms/type/{llm_type}", response_model=List[LLMSchema])
+@router.get("/llms/type/{llm_type}", response_model=list[LLMSchema])
 def read_llms_by_type(llm_type: str, db: Session = Depends(get_sync_db)):
     db_llms = db.query(LLM).filter(LLM.llm_type == llm_type).all()
     if not db_llms:

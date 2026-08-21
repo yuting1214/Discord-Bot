@@ -1,15 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
-from typing import List
 
-from backend.fastapi.schemas import (
-    CommandCreate,
-    CommandBase,
-    CommandSchema
-)
-from backend.fastapi.crud import (
-    CommandService
-)
+from fastapi import APIRouter, Depends
+
+from backend.fastapi.crud import CommandService
+from backend.fastapi.schemas import CommandBase, CommandCreate, CommandSchema
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -19,7 +13,7 @@ router_async = APIRouter()
 def create_command(command_data: CommandCreate, service: CommandService = Depends()):
     return service.create_command(command_data)
 
-@router_sync.get("/commands/", response_model=List[CommandSchema])
+@router_sync.get("/commands/", response_model=list[CommandSchema])
 def get_commands(skip: int = 0, limit: int = 30, service: CommandService = Depends()):
     return service.get_commands(skip, limit)
 

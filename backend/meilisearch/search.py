@@ -1,9 +1,10 @@
 import os
+
 import httpx
 import requests
-from typing import Optional
 
-def hybrid_search(index_uid: str, user_query: str, semanticRatio: float = 0.5, top_n: int = 3) -> Optional[dict]:
+
+def hybrid_search(index_uid: str, user_query: str, semanticRatio: float = 0.5, top_n: int = 3) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/search"
     headers = {
@@ -36,7 +37,7 @@ async def hybrid_search_async(
     user_query: str,
     semanticRatio: float = 0.5,
     top_n: int = 3
-) -> Optional[dict]:
+) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/search"
     headers = {
@@ -65,7 +66,7 @@ async def hybrid_search_async(
                 print(f"An error occurred: {e}")
             return None
     
-def fulltext_search(index_uid: str, user_query: str, top_n: int = 3) -> Optional[dict]:
+def fulltext_search(index_uid: str, user_query: str, top_n: int = 3) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/search"
     headers = {
@@ -92,7 +93,7 @@ async def fulltext_search_async(
     index_uid: str,
     user_query: str,
     top_n: int = 3
-) -> Optional[dict]:
+) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/search"
     headers = {

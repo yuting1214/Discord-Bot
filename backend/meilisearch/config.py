@@ -1,6 +1,8 @@
 import os
-import meilisearch
 from contextlib import contextmanager
+
+import meilisearch
+
 
 @contextmanager
 def meilisearch_client():

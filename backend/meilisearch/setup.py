@@ -1,9 +1,10 @@
 import os
+
 import httpx
 import requests
-from typing import Optional
 
-def enable_experimental_features() -> Optional[dict]:
+
+def enable_experimental_features() -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/experimental-features/"
     headers = {
@@ -20,7 +21,7 @@ def enable_experimental_features() -> Optional[dict]:
         print(f"An error occurred: {e}")
         return None
     
-def configure_embedder(index_uid: str) -> Optional[dict]:
+def configure_embedder(index_uid: str) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/settings"
     headers = {
@@ -47,7 +48,7 @@ def configure_embedder(index_uid: str) -> Optional[dict]:
         print(f"An error occurred: {e}")
         return None
 
-async def configure_embedder_async(index_uid: str) -> Optional[dict]:
+async def configure_embedder_async(index_uid: str) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{index_uid}/settings"
     headers = {

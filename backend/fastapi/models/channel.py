@@ -1,9 +1,9 @@
 import uuid
-from sqlalchemy import (
-    Column, String, Boolean, ForeignKey, UniqueConstraint, Table
-)
-from sqlalchemy.orm import relationship
+
+from sqlalchemy import Boolean, Column, ForeignKey, String, Table
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
 from backend.fastapi.dependencies.database import Base
 
 # Association table for many-to-many relationship between Channel and User

@@ -1,6 +1,6 @@
-from typing import Optional, List, Dict, Tuple
 
-def format_documents_to_search_results(documents: dict) -> Optional[List[dict]]:
+
+def format_documents_to_search_results(documents: dict) -> list[dict] | None:
     if documents is None:
         return []
 
@@ -13,6 +13,6 @@ def format_documents_to_search_results(documents: dict) -> Optional[List[dict]]:
         for hit in hits
     ]
 
-def format_search_results_to_conversation_ids_and_scores(search_results: List[Dict[str, any]]) -> Tuple[List[str], List[float]]:
+def format_search_results_to_conversation_ids_and_scores(search_results: list[dict[str, any]]) -> tuple[list[str], list[float]]:
     return ([result["conversation_id"] for result in search_results], 
             [round(result["score"], 3) for result in search_results])

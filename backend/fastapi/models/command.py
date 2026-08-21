@@ -1,9 +1,11 @@
 import uuid
-from sqlalchemy import Column, Text, String
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+
+from sqlalchemy import Column, String, Text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
 from backend.fastapi.dependencies.database import Base
+
 
 class Command(Base):
     __tablename__ = "commands"

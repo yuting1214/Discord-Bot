@@ -1,15 +1,15 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
-from sqlalchemy import case, select, desc, asc
-from sqlalchemy.orm import Session
+from sqlalchemy import asc, case, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
-from backend.fastapi.models import Message, Conversation
+from sqlalchemy.orm import Session
+
 from backend.constants import MEMORY_WINDOW_SIZE
-from backend.fastapi.schemas import (
-    MessageBase, MessageCreate
-)
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
+from backend.fastapi.models import Conversation, Message
+from backend.fastapi.schemas import MessageBase, MessageCreate
+
 
 class MessageService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -30,7 +30,7 @@ class MessageService:
         await self.db_async.refresh(db_message)
         return db_message
 
-    def get_messages(self, skip: int = 0, limit: int = 30) -> List[Message]:
+    def get_messages(self, skip: int = 0, limit: int = 30) -> list[Message]:
         return self.db_sync.query(Message).offset(skip).limit(limit).all()
 
     def get_message(self, message_id: UUID) -> Message:
@@ -39,7 +39,7 @@ class MessageService:
             raise HTTPException(status_code=404, detail="Message not found")
         return db_message
     
-    def get_latest_messages(self, session_id: UUID, n: int = MEMORY_WINDOW_SIZE) -> List[Message]:
+    def get_latest_messages(self, session_id: UUID, n: int = MEMORY_WINDOW_SIZE) -> list[Message]:
         # Fetch conversations associated with the given session_id
         conversations = self.db_sync.query(Conversation).filter(
             Conversation.session_id == session_id,
@@ -60,7 +60,7 @@ class MessageService:
             Message.conversation_id.in_(conversation_ids),
         ).order_by(case_statement, Message.timestamp.desc()).all()
 
-    async def get_latest_messages_async(self, session_id: UUID, n: int = MEMORY_WINDOW_SIZE) -> List[Message]:
+    async def get_latest_messages_async(self, session_id: UUID, n: int = MEMORY_WINDOW_SIZE) -> list[Message]:
         # Fetch conversations associated with the given session_id
         stmt = select(Conversation).filter(
             Conversation.session_id == session_id
@@ -87,7 +87,7 @@ class MessageService:
         result = await self.db_async.execute(stmt)
         return result.scalars().all() 
     
-    def get_messages_by_conversations(self, conversation_ids: List[UUID]) -> List[Message]:
+    def get_messages_by_conversations(self, conversation_ids: list[UUID]) -> list[Message]:
         # Generate a SQL CASE statement to preserve the order of conversation_ids
         case_statement = case(
             *(
@@ -100,7 +100,7 @@ class MessageService:
             Message.conversation_id.in_(conversation_ids)
         ).order_by(case_statement, Message.timestamp.asc()).all()
     
-    async def get_messages_by_conversations_async(self, conversation_ids: List[UUID]) -> List[Message]:
+    async def get_messages_by_conversations_async(self, conversation_ids: list[UUID]) -> list[Message]:
             # Generate a SQL CASE statement to preserve the order of conversation_ids
             case_statement = case(
                 *(

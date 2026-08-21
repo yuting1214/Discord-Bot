@@ -1,14 +1,9 @@
-from fastapi import APIRouter, Depends
 from uuid import UUID
-from typing import List
-from backend.fastapi.schemas import (
-    SessionCreate,
-    SessionUpdate,
-    SessionSchema
-)
-from backend.fastapi.crud import (
-    SessionService
-)
+
+from fastapi import APIRouter, Depends
+
+from backend.fastapi.crud import SessionService
+from backend.fastapi.schemas import SessionCreate, SessionSchema, SessionUpdate
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -18,7 +13,7 @@ router_async = APIRouter()
 def create_session(session_data: SessionCreate, service: SessionService = Depends()):
     return service.create_session(session_data)
 
-@router_sync.get("/sessions/", response_model=List[SessionSchema])
+@router_sync.get("/sessions/", response_model=list[SessionSchema])
 def get_sessions(skip: int = 0, limit: int = 30, service: SessionService = Depends()):
     return service.get_sessions(skip, limit)
 
@@ -34,11 +29,11 @@ def get_current_single_session(user_id: UUID, service: SessionService = Depends(
 def get_current_group_session(channel_discord_id: str, service: SessionService = Depends()):
     return service.get_current_group_session(channel_discord_id)
 
-@router_sync.get("/sessions/active/single/", response_model=List[SessionSchema])
+@router_sync.get("/sessions/active/single/", response_model=list[SessionSchema])
 def get_active_single_sessions(user_id: UUID, service: SessionService = Depends()):
     return service.get_active_single_sessions(user_id)
 
-@router_sync.get("/sessions/active/group/", response_model=List[SessionSchema])
+@router_sync.get("/sessions/active/group/", response_model=list[SessionSchema])
 def get_active_group_sessions(channel_discord_id: str, service: SessionService = Depends()):
     return service.get_active_group_sessions(channel_discord_id)
 
@@ -67,11 +62,11 @@ async def get_current_single_session_async(user_id: UUID, service: SessionServic
 async def get_current_group_session_async(channel_discord_id: str, service: SessionService = Depends()):
     return await service.get_current_group_session_async(channel_discord_id)
 
-@router_async.get("/sessions/active/single/", response_model=List[SessionSchema])
+@router_async.get("/sessions/active/single/", response_model=list[SessionSchema])
 async def get_active_single_sessions_async(user_id: UUID, service: SessionService = Depends()):
     return await service.get_active_single_sessions_async(user_id)
 
-@router_async.get("/sessions/active/group/", response_model=List[SessionSchema])
+@router_async.get("/sessions/active/group/", response_model=list[SessionSchema])
 async def get_active_group_sessions_async(channel_discord_id: str, service: SessionService = Depends()):
     return await service.get_active_group_sessions_async(channel_discord_id)
 

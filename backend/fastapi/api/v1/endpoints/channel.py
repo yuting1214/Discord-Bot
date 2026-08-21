@@ -1,14 +1,9 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
 from uuid import UUID
-from typing import List, Optional
-from backend.fastapi.schemas import (
-    ChannelCreate,
-    ChannelUpdate,
-    ChannelSchema
-)
-from backend.fastapi.crud import (
-    ChannelService
-)
+
+from fastapi import APIRouter, Depends, Query
+
+from backend.fastapi.crud import ChannelService
+from backend.fastapi.schemas import ChannelCreate, ChannelSchema, ChannelUpdate
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -18,7 +13,7 @@ router_async = APIRouter()
 def create_channel(channel_data: ChannelCreate, service: ChannelService = Depends()):
     return service.create_channel(channel_data)
 
-@router_sync.get("/channels/", response_model=List[ChannelSchema])
+@router_sync.get("/channels/", response_model=list[ChannelSchema])
 def get_channels(skip: int = 0, limit: int = 30, service: ChannelService = Depends()):
     return service.get_channels(skip, limit)
 
@@ -26,7 +21,7 @@ def get_channels(skip: int = 0, limit: int = 30, service: ChannelService = Depen
 def get_channel(
     channel_discord_id: str, 
     is_group: bool, 
-    user_id: Optional[UUID] = Query(None),
+    user_id: UUID | None = Query(None),
     service: ChannelService = Depends()
 ):
     return service.get_channel_by_channel_discord_id_and_group_status(channel_discord_id, is_group, user_id)

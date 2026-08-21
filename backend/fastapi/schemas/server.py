@@ -1,6 +1,7 @@
-from pydantic import BaseModel
 from uuid import UUID
-from typing import List
+
+from pydantic import BaseModel
+
 
 class ServerBase(BaseModel):
     server_discord_id: str
@@ -8,7 +9,7 @@ class ServerBase(BaseModel):
     owner_discord_id: str
 
 class ServerCreate(ServerBase):
-    users: List[UUID] = [] 
+    users: list[UUID] = [] 
 
 class ServerSchema(ServerBase):
     id: UUID

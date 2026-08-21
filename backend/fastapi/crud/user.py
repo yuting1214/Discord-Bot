@@ -1,14 +1,14 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
-from backend.fastapi.models import User, Session
-from backend.fastapi.schemas import (
-    UserBase, UserCreate
-)
+from sqlalchemy.orm import Session, joinedload
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
+from backend.fastapi.models import Session, User
+from backend.fastapi.schemas import UserBase, UserCreate
+
 
 class UserService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -29,7 +29,7 @@ class UserService:
         await self.db_async.refresh(db_user)
         return db_user
 
-    def get_users(self, skip: int = 0, limit: int = 30) -> List[User]:
+    def get_users(self, skip: int = 0, limit: int = 30) -> list[User]:
         return self.db_sync.query(User).offset(skip).limit(limit).all()
 
     def get_user(self, user_id: UUID) -> User:

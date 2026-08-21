@@ -1,9 +1,12 @@
 import uuid
-from sqlalchemy import Column, ForeignKey, DateTime, Integer
-from sqlalchemy.sql import func
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from backend.fastapi.dependencies.database import Base
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from backend.fastapi.dependencies.database import Base
+
 
 class LLMUsage(Base):
     __tablename__ = "llm_usages"

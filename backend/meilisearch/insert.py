@@ -1,10 +1,12 @@
 import os
+
 import httpx
 import requests
-from typing import List, Dict, Optional
+
+from backend.fastapi.schemas.document import DocumentSchema
 from backend.meilisearch.config import meilisearch_client
 from backend.meilisearch.setup import configure_embedder, configure_embedder_async
-from backend.fastapi.schemas.document import DocumentSchema
+
 
 def initiate_index(uid: str) -> dict:
     # Create the index
@@ -13,7 +15,7 @@ def initiate_index(uid: str) -> dict:
     embedder = configure_embedder(uid)
     return index
 
-async def initiate_index_async(uid: str) -> Optional[dict]:
+async def initiate_index_async(uid: str) -> dict | None:
     index = await create_index_async(uid)
     embedder = await configure_embedder_async(uid)
     return index
@@ -37,7 +39,7 @@ def create_index(uid: str) -> dict:
         print(f"An error occurred: {e}")
         return None
 
-async def create_index_async(uid: str) -> Optional[dict]:
+async def create_index_async(uid: str) -> dict | None:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes"
     headers = {
@@ -57,7 +59,7 @@ async def create_index_async(uid: str) -> Optional[dict]:
             print(f"An error occurred: {e}")
             return None
 
-def insert_documents(uid: str, documents: List[DocumentSchema]) -> Dict[str, str]:
+def insert_documents(uid: str, documents: list[DocumentSchema]) -> dict[str, str]:
     with meilisearch_client() as client:
         try:
             # Get or create the index
@@ -69,7 +71,7 @@ def insert_documents(uid: str, documents: List[DocumentSchema]) -> Dict[str, str
             print(f"An error occurred: {e}")
             return None
 
-async def insert_documents_async(uid: str, documents: List[Dict[str, str]]) -> Dict[str, str]:
+async def insert_documents_async(uid: str, documents: list[dict[str, str]]) -> dict[str, str]:
     host = os.getenv("MEILI_HOST", "http://localhost:7700")
     url = f"{host}/indexes/{uid}/documents"
     headers = {

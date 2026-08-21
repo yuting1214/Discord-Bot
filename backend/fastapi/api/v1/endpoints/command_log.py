@@ -1,15 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
-from typing import List
 
-from backend.fastapi.schemas import (
-    CommandLogCreate,
-    CommandLogUpdate,
-    CommandLogSchema
-)
-from backend.fastapi.crud import (
-    CommandLogService
-)
+from fastapi import APIRouter, Depends
+
+from backend.fastapi.crud import CommandLogService
+from backend.fastapi.schemas import CommandLogCreate, CommandLogSchema, CommandLogUpdate
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -19,7 +13,7 @@ router_async = APIRouter()
 def create_command_log(command_log_data: CommandLogCreate, service: CommandLogService = Depends()):
     return service.create_command_log(command_log_data)
 
-@router_sync.get("/command_logs/", response_model=List[CommandLogSchema])
+@router_sync.get("/command_logs/", response_model=list[CommandLogSchema])
 def get_command_logs(skip: int = 0, limit: int = 30, service: CommandLogService = Depends()):
     return service.get_command_logs(skip, limit)
 

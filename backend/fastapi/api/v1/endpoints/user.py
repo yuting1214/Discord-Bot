@@ -1,14 +1,9 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
 from uuid import UUID
-from typing import List, Optional
-from backend.fastapi.schemas import (
-    UserCreate,
-    UserBase,
-    UserSchema
-)
-from backend.fastapi.crud import (
-    UserService
-)
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from backend.fastapi.crud import UserService
+from backend.fastapi.schemas import UserBase, UserCreate, UserSchema
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -18,7 +13,7 @@ router_async = APIRouter()
 def create_user(user_data: UserCreate, service: UserService = Depends()):
     return service.create_user(user_data)
 
-@router_sync.get("/users/", response_model=List[UserSchema])
+@router_sync.get("/users/", response_model=list[UserSchema])
 def get_users(skip: int = 0, limit: int = 30, service: UserService = Depends()):
     return service.get_users(skip, limit)
 
@@ -49,8 +44,8 @@ async def create_user_async(user_data: UserCreate, service: UserService = Depend
 
 @router_async.get("/user/", response_model=UserSchema)
 async def get_user_async(
-    user_id: Optional[UUID] = None, 
-    discord_id: Optional[str] = Query(None), 
+    user_id: UUID | None = None, 
+    discord_id: str | None = Query(None), 
     service: UserService = Depends()
 ):
     if user_id:

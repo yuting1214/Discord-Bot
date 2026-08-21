@@ -1,7 +1,8 @@
-from typing import Optional, List
-from pydantic import BaseModel
-from uuid import UUID
 from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel
+
 
 class SessionBase(BaseModel):
     channel_discord_id: str
@@ -9,16 +10,16 @@ class SessionBase(BaseModel):
     is_group: bool
 
 class SessionCreate(SessionBase):
-    users: List[UUID] = []  # List of user IDs to associate with the session
+    users: list[UUID] = []  # List of user IDs to associate with the session
 
 class SessionUpdate(BaseModel):
     is_active: bool
-    end_time: Optional[datetime]
+    end_time: datetime | None
 
 class SessionSchema(SessionBase):
     id: UUID
     start_time: datetime
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
 
     class Config:
         from_attributes = True

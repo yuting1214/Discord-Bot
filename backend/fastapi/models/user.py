@@ -1,11 +1,14 @@
 import uuid
+
 from sqlalchemy import Column, String
-from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
 from backend.fastapi.dependencies.database import Base
-from backend.fastapi.models.session import user_session_association_table
 from backend.fastapi.models.channel import channel_user_association
 from backend.fastapi.models.server import server_user_association
+from backend.fastapi.models.session import user_session_association_table
+
 
 class User(Base):
     __tablename__ = "users"

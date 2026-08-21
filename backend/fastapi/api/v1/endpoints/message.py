@@ -1,15 +1,10 @@
-from fastapi import APIRouter, Depends, Query
 from uuid import UUID
-from typing import List
+
+from fastapi import APIRouter, Depends, Query
+
 from backend.constants import MEMORY_WINDOW_SIZE
-from backend.fastapi.schemas import (
-    MessageCreate,
-    MessageBase,
-    MessageSchema
-)
-from backend.fastapi.crud import (
-    MessageService
-)
+from backend.fastapi.crud import MessageService
+from backend.fastapi.schemas import MessageBase, MessageCreate, MessageSchema
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -19,7 +14,7 @@ router_async = APIRouter()
 def create_message(message_data: MessageCreate, service: MessageService = Depends()):
     return service.create_message(message_data)
 
-@router_sync.get("/messages/", response_model=List[MessageSchema])
+@router_sync.get("/messages/", response_model=list[MessageSchema])
 def get_messages(skip: int = 0, limit: int = 30, service: MessageService = Depends()):
     return service.get_messages(skip, limit)
 
@@ -27,12 +22,12 @@ def get_messages(skip: int = 0, limit: int = 30, service: MessageService = Depen
 def get_message(message_id: UUID, service: MessageService = Depends()):
     return service.get_message(message_id)
 
-@router_sync.get("/messages/latest/", response_model=List[MessageSchema])
+@router_sync.get("/messages/latest/", response_model=list[MessageSchema])
 def get_latest_messages(session_id: UUID, n: int = MEMORY_WINDOW_SIZE, service: MessageService = Depends()):
     return service.get_latest_messages(session_id, n)
 
-@router_sync.get("/messages/conversations/", response_model=List[MessageSchema])
-def get_messages_by_conversations(conversation_ids: List[UUID] = Query(...), service: MessageService = Depends()):
+@router_sync.get("/messages/conversations/", response_model=list[MessageSchema])
+def get_messages_by_conversations(conversation_ids: list[UUID] = Query(...), service: MessageService = Depends()):
     return service.get_messages_by_conversations(conversation_ids)
 
 @router_sync.put("/messages/{message_id}", response_model=MessageSchema)
@@ -48,12 +43,12 @@ def delete_message(message_id: UUID, service: MessageService = Depends()):
 def create_message_async(message_data: MessageCreate, service: MessageService = Depends()):
     return service.create_message_async(message_data)
 
-@router_async.get("/messages/latest/", response_model=List[MessageSchema])
+@router_async.get("/messages/latest/", response_model=list[MessageSchema])
 async def get_latest_messages_async(session_id: UUID, n: int = MEMORY_WINDOW_SIZE, service: MessageService = Depends()):
     return await service.get_latest_messages_async(session_id, n)
 
-@router_async.get("/messages/conversations/", response_model=List[MessageSchema])
-async def get_messages_by_conversations_async(conversation_ids: List[UUID] = Query(...), service: MessageService = Depends()):
+@router_async.get("/messages/conversations/", response_model=list[MessageSchema])
+async def get_messages_by_conversations_async(conversation_ids: list[UUID] = Query(...), service: MessageService = Depends()):
     return await service.get_messages_by_conversations_async(conversation_ids)
 
 @router_async.put("/messages/{message_id}", response_model=MessageSchema)

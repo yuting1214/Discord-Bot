@@ -1,15 +1,15 @@
 
-from typing import List, Optional
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import Conversation
-from backend.fastapi.schemas import (
-    ConversationUpdate, ConversationCreate
-)
+from backend.fastapi.schemas import ConversationCreate, ConversationUpdate
+
 
 class ConversationService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -30,7 +30,7 @@ class ConversationService:
         await self.db_async.refresh(db_conversation)
         return db_conversation
 
-    def get_conversations(self, skip: int = 0, limit: int = 30) -> List[Conversation]:
+    def get_conversations(self, skip: int = 0, limit: int = 30) -> list[Conversation]:
         return self.db_sync.query(Conversation).offset(skip).limit(limit).all()
 
     def get_conversation(self, conversation_id: UUID) -> Conversation:

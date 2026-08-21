@@ -1,8 +1,11 @@
 import uuid
+
 from sqlalchemy import Column, String
 from sqlalchemy.dialects.postgresql import UUID
-from backend.fastapi.dependencies.database import Base
 from sqlalchemy.orm import relationship
+
+from backend.fastapi.dependencies.database import Base
+
 
 class LLM(Base):
     __tablename__ = "llms"

@@ -1,15 +1,9 @@
-from fastapi import APIRouter, Depends
 from uuid import UUID
-from typing import List
 
-from backend.fastapi.schemas import (
-    ConversationCreate,
-    ConversationUpdate,
-    ConversationSchema
-)
-from backend.fastapi.crud import (
-    ConversationService
-)
+from fastapi import APIRouter, Depends
+
+from backend.fastapi.crud import ConversationService
+from backend.fastapi.schemas import ConversationCreate, ConversationSchema, ConversationUpdate
 
 router_sync = APIRouter()
 router_async = APIRouter()
@@ -19,7 +13,7 @@ router_async = APIRouter()
 def create_conversation(conversation_data: ConversationCreate, service: ConversationService = Depends()):
     return service.create_conversation(conversation_data)
 
-@router_sync.get("/conversations/", response_model=List[ConversationSchema])
+@router_sync.get("/conversations/", response_model=list[ConversationSchema])
 def get_conversations(skip: int = 0, limit: int = 30, service: ConversationService = Depends()):
     return service.get_conversations(skip, limit)
 

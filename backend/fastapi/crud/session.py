@@ -1,14 +1,15 @@
-from typing import List, Optional
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
-from sqlalchemy import select, desc
-from sqlalchemy.orm import Session
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
-from backend.fastapi.models import Session as SessionModel, User
-from backend.fastapi.schemas import (
-    SessionBase, SessionCreate
-)
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
+from backend.fastapi.models import Session as SessionModel
+from backend.fastapi.models import User
+from backend.fastapi.schemas import SessionBase, SessionCreate
+
 
 class SessionService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -56,7 +57,7 @@ class SessionService:
         await self.db_async.refresh(db_session)
         return db_session
 
-    def get_sessions(self, skip: int = 0, limit: int = 30) -> List[SessionModel]:
+    def get_sessions(self, skip: int = 0, limit: int = 30) -> list[SessionModel]:
         return self.db_sync.query(SessionModel).offset(skip).limit(limit).all()
 
     def get_session(self, session_id: UUID) -> SessionModel:
@@ -82,7 +83,7 @@ class SessionService:
             raise HTTPException(status_code=404, detail="Session not found")
         return db_session
     
-    def get_current_single_session(self, user_id: UUID) -> Optional[SessionModel]:
+    def get_current_single_session(self, user_id: UUID) -> SessionModel | None:
         db_session = (
             self.db_sync.query(SessionModel)
             .filter(
@@ -99,7 +100,7 @@ class SessionService:
         
         return db_session
     
-    async def get_current_single_session_async(self, user_id: UUID) -> Optional[SessionModel]:
+    async def get_current_single_session_async(self, user_id: UUID) -> SessionModel | None:
         stmt = (
             select(SessionModel)
             .join(SessionModel.users)
@@ -119,7 +120,7 @@ class SessionService:
         
         return db_session
     
-    def get_current_group_session(self, channel_discord_id: str) -> Optional[SessionModel]:
+    def get_current_group_session(self, channel_discord_id: str) -> SessionModel | None:
         db_session = (
             self.db_sync.query(SessionModel)
             .filter(
@@ -136,7 +137,7 @@ class SessionService:
         
         return db_session
 
-    async def get_current_group_session_async(self, channel_discord_id: str) -> Optional[SessionModel]:
+    async def get_current_group_session_async(self, channel_discord_id: str) -> SessionModel | None:
         stmt = (
             select(SessionModel)
             .filter(
@@ -203,7 +204,7 @@ class SessionService:
         
         return db_session
 
-    def get_active_single_sessions(self, user_id: UUID) -> List[SessionModel]:
+    def get_active_single_sessions(self, user_id: UUID) -> list[SessionModel]:
         db_sessions = (
             self.db_sync.query(SessionModel)
             .filter(
@@ -218,7 +219,7 @@ class SessionService:
         
         return db_sessions
     
-    async def get_active_single_sessions_async(self, user_id: UUID) -> List[SessionModel]:
+    async def get_active_single_sessions_async(self, user_id: UUID) -> list[SessionModel]:
         stmt = (
             select(SessionModel)
             .join(SessionModel.users)
@@ -237,7 +238,7 @@ class SessionService:
         
         return db_sessions
 
-    def get_active_group_sessions(self, channel_discord_id: str) -> List[SessionModel]:
+    def get_active_group_sessions(self, channel_discord_id: str) -> list[SessionModel]:
         db_sessions = (
             self.db_sync.query(SessionModel)
             .filter(
@@ -252,7 +253,7 @@ class SessionService:
         
         return db_sessions
     
-    async def get_active_group_sessions_async(self, channel_discord_id: str) -> List[SessionModel]:
+    async def get_active_group_sessions_async(self, channel_discord_id: str) -> list[SessionModel]:
         stmt = (
             select(SessionModel)
             .filter(

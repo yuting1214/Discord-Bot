@@ -1,13 +1,13 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import LLM
-from backend.fastapi.schemas import (
-    LLMBase, LLMCreate
-)
+from backend.fastapi.schemas import LLMBase, LLMCreate
+
 
 class LLMService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -28,7 +28,7 @@ class LLMService:
         await self.db_async.refresh(db_llm)
         return db_llm
 
-    def get_llms(self, skip: int = 0, limit: int = 30) -> List[LLM]:
+    def get_llms(self, skip: int = 0, limit: int = 30) -> list[LLM]:
         return self.db_sync.query(LLM).offset(skip).limit(limit).all()
 
     def get_llm(self, llm_id: UUID) -> LLM:

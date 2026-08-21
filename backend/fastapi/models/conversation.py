@@ -1,9 +1,12 @@
 import uuid
+
 from sqlalchemy import Column, DateTime, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
+
 from backend.fastapi.dependencies.database import Base
+
 
 class Conversation(Base):
     __tablename__ = "conversations"

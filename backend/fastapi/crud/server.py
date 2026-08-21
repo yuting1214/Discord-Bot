@@ -1,12 +1,14 @@
-from typing import List
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import Server, User
 from backend.fastapi.schemas import ServerBase, ServerCreate
+
 
 class ServerService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -39,7 +41,7 @@ class ServerService:
         await self.db_async.refresh(db_server)
         return db_server
 
-    def get_servers(self, skip: int = 0, limit: int = 30) -> List[Server]:
+    def get_servers(self, skip: int = 0, limit: int = 30) -> list[Server]:
         return self.db_sync.query(Server).offset(skip).limit(limit).all()
 
     def get_server_by_server_discord_id(self, server_discord_id: str) -> Server:

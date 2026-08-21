@@ -1,12 +1,14 @@
-from typing import List, Optional
 from uuid import UUID
+
 from fastapi import Depends, HTTPException
-from sqlalchemy.sql import select
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.fastapi.dependencies.database import get_sync_db, get_async_db
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import select
+
+from backend.fastapi.dependencies.database import get_async_db, get_sync_db
 from backend.fastapi.models import Channel, User
-from backend.fastapi.schemas import ChannelUpdate, ChannelCreate
+from backend.fastapi.schemas import ChannelCreate, ChannelUpdate
+
 
 class ChannelService:
     def __init__(self, db_sync: Session = Depends(get_sync_db), db_async: AsyncSession = Depends(get_async_db)):
@@ -39,7 +41,7 @@ class ChannelService:
         await self.db_async.refresh(db_channel)
         return db_channel
 
-    def get_channels(self, skip: int = 0, limit: int = 30) -> List[Channel]:
+    def get_channels(self, skip: int = 0, limit: int = 30) -> list[Channel]:
         return self.db_sync.query(Channel).offset(skip).limit(limit).all()
 
     def get_channel_by_channel_discord_id(self, channel_discord_id: str) -> Channel:
@@ -48,7 +50,7 @@ class ChannelService:
             raise HTTPException(status_code=404, detail="Channel not found")
         return db_channel
 
-    def get_channel_by_channel_discord_id_and_group_status(self, channel_discord_id: str, is_group: bool, user_id: Optional[UUID] = None) -> Channel:
+    def get_channel_by_channel_discord_id_and_group_status(self, channel_discord_id: str, is_group: bool, user_id: UUID | None = None) -> Channel:
         query = (
             self.db_sync.query(Channel)
             .filter(Channel.channel_discord_id == channel_discord_id, Channel.is_group == is_group)

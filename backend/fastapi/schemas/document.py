@@ -1,7 +1,7 @@
-from pydantic import BaseModel
-from typing import Optional
 from uuid import UUID
-from datetime import datetime
+
+from pydantic import BaseModel
+
 
 class DocumentSchema(BaseModel):
     conversation_id: UUID

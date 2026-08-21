@@ -1,7 +1,8 @@
-from pydantic import BaseModel
-from typing import Optional
-from uuid import UUID
 from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel
+
 
 class ConversationBase(BaseModel):
     pass
@@ -16,7 +17,7 @@ class ConversationSchema(ConversationBase):
     id: UUID
     session_id: UUID
     start_time: datetime
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
 
     class Config:
         from_attributes = True
