@@ -1,15 +1,20 @@
 import os
-from urllib.parse import urljoin
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     # Application settings
-    APP_NAME: str = "My App"
-    APP_VERSION: str = "0.1.0"
+    APP_NAME: str = "Discord LLM Bot"
+    APP_VERSION: str = "0.2.0"
 
     # Username and Password for login
-    USER_NAME: str = os.getenv('USER_NAME', '')
-    PASSWORD: str = os.getenv('PASSWORD', '')
+    USER_NAME: str = ""
+    PASSWORD: str = ""
+
+    # Server
+    HOST: str = "127.0.0.1"
+    PORT: int = 5000
 
     # API KEY
     OPENAI_API_KEY: str
@@ -22,14 +27,7 @@ class Settings(BaseSettings):
             if self.DATABASE_URL:
                 return self.DATABASE_URL
             else:
-                return '{}://{}:{}@{}:{}/{}'.format(
-                    self.DB_ENGINE,
-                    self.DB_USERNAME,
-                    self.DB_PASS,
-                    self.DB_HOST,
-                    self.DB_PORT,
-                    self.DB_NAME
-                )
+                return f'{self.DB_ENGINE}://{self.DB_USERNAME}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
 
     @property
     def ASYNC_DB_URL(self):
@@ -40,28 +38,8 @@ class Settings(BaseSettings):
                 URL_split = self.DATABASE_URL.split("://")
                 return f"{URL_split[0]}+asyncpg://{URL_split[1]}"
             else:
-                return '{}+asyncpg://{}:{}@{}:{}/{}'.format(
-                    self.DB_ENGINE,
-                    self.DB_USERNAME,
-                    self.DB_PASS,
-                    self.DB_HOST,
-                    self.DB_PORT,
-                    self.DB_NAME
-                )
+                return f'{self.DB_ENGINE}+asyncpg://{self.DB_USERNAME}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
 
-    @property
-    def API_BASE_URL_SYNC(self) -> str:
-        api_extention = 'api/v1/sync/'
-        if self.ENV_MODE == "dev":
-            return urljoin('http://localhost:5000/', api_extention)
-        return urljoin(self.HOST_URL, api_extention)
-
-    @property
-    def API_BASE_URL_ASYNC(self) -> str:
-        api_extention = 'api/v1/async/'
-        if self.ENV_MODE == "dev":
-            return urljoin('http://localhost:5000/', api_extention)
-        return urljoin(self.HOST_URL, api_extention)
 
 class DevSettings(Settings):
     # Environment mode: 'dev' or 'prod'
@@ -72,28 +50,37 @@ class DevSettings(Settings):
 
     model_config = SettingsConfigDict(env_file=".env", extra='allow')
 
+
 class ProdSettings(Settings):
     # Environment mode: 'dev' or 'prod'
     ENV_MODE: str = 'prod'
 
+    HOST: str = "0.0.0.0"
+
     # Database settings for production
-    DB_ENGINE: str = os.getenv('DB_ENGINE', '')
-    DB_USERNAME: str = os.getenv('DB_USERNAME', '')
-    DB_PASS: str = os.getenv('DB_PASS', '')
-    DB_HOST: str = os.getenv('DB_HOST', '')
-    DB_PORT: str = os.getenv('DB_PORT', '')
-    DB_NAME: str = os.getenv('DB_NAME', '')
+    DB_ENGINE: str = ""
+    DB_USERNAME: str = ""
+    DB_PASS: str = ""
+    DB_HOST: str = ""
+    DB_PORT: str = ""
+    DB_NAME: str = ""
 
     # Extra Database settings for deploying on Railway; if you provide DATABASE_URL, the above settings will be ignored
-    DATABASE_URL: str = os.getenv('DATABASE_URL', '')
+    DATABASE_URL: str = ""
 
-    # Define HOST_URL based on environment mode
-    HOST_URL : str = os.getenv('HOST_URL ', '')
+    # Public base URL of this service
+    HOST_URL: str = ""
 
-    # Database settings for production
     model_config = SettingsConfigDict(env_file=".env", extra='allow')
 
-def get_settings(env_mode: str = "dev"):
-    if env_mode == "dev":
-        return DevSettings()
-    return ProdSettings()
+
+def get_settings(env_mode: str | None = None):
+    """Build settings for ``env_mode``, defaulting to the ENV_MODE variable.
+
+    Fields are populated by pydantic-settings from the environment and .env, so
+    they must not carry os.getenv() defaults: those are evaluated once at import
+    and shadow the settings machinery.
+    """
+    if env_mode is None:
+        env_mode = os.getenv("ENV_MODE", "dev")
+    return DevSettings() if env_mode == "dev" else ProdSettings()

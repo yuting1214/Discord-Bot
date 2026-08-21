@@ -1,30 +1,33 @@
 import os
-import uvicorn
-from threading import Thread
-from fastapi import FastAPI, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
-from backend.fastapi.core.init_settings import args
-from backend.fastapi.crud.command import create_init_command_async
-from backend.fastapi.api.v1.endpoints import (
-    doc,
-    server,
-    channel,
-    session,
-    conversation,
-    message,
-    user,
-    command,
-    command_log
-)
-from backend.fastapi.dependencies.database import init_db, AsyncSessionLocal
+from threading import Thread
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
 from backend.data.discord_command import command_data
 from backend.discord.register import discord_bot_run
+from backend.fastapi.api.v1.endpoints import (
+    channel,
+    command,
+    command_log,
+    conversation,
+    doc,
+    message,
+    server,
+    session,
+    user,
+)
+from backend.fastapi.core.init_settings import global_settings as settings
+from backend.fastapi.crud.command import create_init_command_async
+from backend.fastapi.dependencies.database import AsyncSessionLocal, init_db
 from backend.meilisearch.setup import enable_experimental_features
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -96,9 +99,9 @@ def fastapi_server_run():
     # mounting at the root path
     uvicorn.run(
         app="backend.fastapi.main:app",
-        host = args.host,
-        port=int(os.getenv("PORT", 5000)),
-        reload=args.mode == "dev"  # Enables auto-reloading in development mode
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.ENV_MODE == "dev",  # Enables auto-reloading in development mode
     )
 
 def keep_alive():

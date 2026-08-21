@@ -1,15 +1,14 @@
-import argparse
-import os
+"""Process-wide settings.
+
+Configuration comes from the environment, not from command-line arguments. The
+previous version parsed argv at import time, which meant importing any module in
+the package consumed the arguments of whatever was actually running -- pytest,
+uvicorn, or a REPL -- and aborted on anything it did not recognise.
+"""
+
 from backend.fastapi.core.config import get_settings
 
-# Command-line argument parsing
-parser = argparse.ArgumentParser(description="Run the FastAPI application.")
-parser.add_argument("--mode", choices=["dev", "prod"], default="dev", help="Run mode: 'dev' or 'prod'")
-parser.add_argument("--host", default="127.0.0.1", help="Host IP address")
-args = parser.parse_args()
+settings = get_settings()
 
-# Initialize and update settings
-settings = get_settings(args.mode)
-
-# Save updated settings for import in other modules
+# Save settings for import in other modules
 global_settings = settings

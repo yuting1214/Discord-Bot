@@ -34,9 +34,10 @@ COPY --from=builder /app/backend /app/backend
 COPY --from=builder /app/frontend /app/frontend
 COPY --from=builder /app/llm /app/llm
 
+ENV ENV_MODE=prod
 ENV HOST=0.0.0.0
 EXPOSE 5000
 
 # Exec the venv python directly: `uv run` would keep a ~25MB wrapper process
 # resident in the container, which counts toward billed memory.
-CMD ["/app/.venv/bin/python", "-m", "backend.fastapi.main", "--mode", "prod", "--host", "0.0.0.0"]
+CMD ["/app/.venv/bin/python", "-m", "backend.fastapi.main"]
