@@ -43,41 +43,34 @@ error in memory.
 
 ## Tokenizing without pg_tokenizer
 
-A vocabulary table maps terms to stable ids; `to_tsvector` supplies stemming and
-stopwords; a trigger keeps the column current.
+Apply [`analyzer.sql`](./analyzer.sql). It is idempotent, so it can run on every
+start:
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;
-
-CREATE TABLE bm25_vocabulary (id serial PRIMARY KEY, term text UNIQUE NOT NULL);
-
-CREATE FUNCTION to_bm25(content text, cfg regconfig DEFAULT 'english')
-RETURNS bm25_catalog.bm25vector LANGUAGE plpgsql AS $$
-DECLARE result bm25_catalog.bm25vector;
-BEGIN
-  INSERT INTO bm25_vocabulary (term)
-  SELECT DISTINCT lexeme FROM unnest(to_tsvector(cfg, content))
-  ON CONFLICT (term) DO NOTHING;
-
-  -- term ids must be ascending; the type rejects unsorted input
-  SELECT COALESCE('{' || string_agg(v.id || ':' || t.freq, ', ' ORDER BY v.id) || '}', '{}')
-           ::bm25_catalog.bm25vector
-  INTO result
-  FROM (SELECT lexeme, cardinality(positions) AS freq
-        FROM unnest(to_tsvector(cfg, content))) t
-  JOIN bm25_vocabulary v ON v.term = t.lexeme;
-  RETURN result;
-END $$;
+```bash
+psql "$DATABASE_URL" -f analyzer.sql
 ```
+
+It creates a `bm25_vocabulary` table mapping terms to stable ids, and three
+functions:
+
+| function | volatility | use |
+|---|---|---|
+| `bm25_terms(text)` | IMMUTABLE | Latin via `to_tsvector`, CJK via bigrams |
+| `to_bm25(text)` | VOLATILE | **write path** — extends the vocabulary |
+| `to_bm25_query(text)` | STABLE | **read path** — lookup only, never writes |
+
+The split matters. An earlier version extended the vocabulary on query too, which
+makes the function VOLATILE, and the planner then re-evaluates it once per row
+rather than once per query: **106 ms per search instead of 6.5 ms**. Unknown query
+terms now simply match nothing, which is correct BM25 behaviour.
 
 Attach it to a table:
 
 ```sql
 ALTER TABLE messages ADD COLUMN bm25 bm25_catalog.bm25vector;
 
-CREATE FUNCTION messages_bm25_trg() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN NEW.bm25 := to_bm25(NEW.content); RETURN NEW; END $$;
+CREATE FUNCTION messages_bm25_trg() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN NEW.bm25 := public.to_bm25(NEW.content); RETURN NEW; END $fn$;
 
 CREATE TRIGGER messages_bm25 BEFORE INSERT OR UPDATE OF content ON messages
   FOR EACH ROW EXECUTE FUNCTION messages_bm25_trg();
@@ -86,12 +79,15 @@ CREATE INDEX messages_bm25_idx ON messages USING bm25 (bm25 bm25_catalog.bm25_op
 ```
 
 Query — `<&>` returns *negative* scores, more negative is more relevant, so order
-ascending:
+ascending. Put `bm25_catalog` on the `search_path`: vchord's own operators resolve
+their types against it.
 
 ```sql
-SELECT id
-FROM messages
-ORDER BY bm25 <&> bm25_catalog.to_bm25query('messages_bm25_idx', to_bm25('search terms'))
+SET search_path TO public, bm25_catalog;
+
+SELECT id FROM messages
+ORDER BY bm25 <&> bm25_catalog.to_bm25query('messages_bm25_idx',
+                                            public.to_bm25_query('search terms'))
 LIMIT 5;
 ```
 
@@ -136,29 +132,21 @@ difference between a database service that is cheap to leave running and one tha
 is not. If your workload is high-QPS search where 6 ms matters more than 330 MB,
 install pg_tokenizer and configure a Lindera model for CJK.
 
-### The original CJK note
+### What Postgres alone does with CJK
 
-Postgres' text search alone, without the bigram step, does not segment CJK:
+For reference, this is why the bigram step exists — `to_tsvector` on its own
+collapses a whole CJK phrase into one unusable token:
 
 ```
 to_tsvector('english', 'sourdough bread starter')
   -> 'bread':2 'sourdough':1 'starter':3          ✓ stemmed, stopworded
 
 to_tsvector('english', '我想要一個關於酸種麵包的建議')
-  -> '我想要一個關於酸種麟包的建議':1                  ✗ one token, unsearchable
-
-to_tsvector('english', '幫我寫一個 Discord bot 教學')
-  -> 'bot':3 'discord':2 '幫我寫一個':1 '教學':4      ~ latin terms still indexed
+  -> '我想要一個關於酸種麵包的建議':1                  ✗ one token
 ```
 
-So **lexical search is effectively English-only** here. That is an acceptable
-default for this template because retrieval is two-tier: CJK queries are served by
-the semantic tier, where embeddings handle Chinese well, and mixed-script text
-still gets its Latin terms indexed.
-
-If CJK lexical search matters for your deployment, either install `pg_tokenizer`
-and accept the ~331 MB (it carries Lindera models), or add a bigram extension such
-as `pg_bigm`, which is far smaller.
+`bm25_terms` splits CJK runs out before calling `to_tsvector` and emits bigrams
+for them, so both scripts are handled in one pass.
 
 ## Build
 
