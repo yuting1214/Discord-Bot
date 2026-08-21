@@ -12,7 +12,7 @@ and keyword relevance, controlled by ``semantic_ratio``.
 import logging
 import math
 
-from sqlalchemy import func, select
+from sqlalchemy import Float, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.backend.fastapi.models import SearchDocument
@@ -81,9 +81,19 @@ async def _search_postgres(
     if embedding is None:
         score = keyword
     else:
-        # `<=>` is cosine distance in pgvector; similarity is 1 - distance.
-        similarity = 1 - SearchDocument.embedding.cosine_distance(embedding)
-        score = semantic_ratio * similarity + (1 - semantic_ratio) * keyword
+        from pgvector.sqlalchemy import Vector
+
+        from src.backend.search.embeddings import EMBEDDING_DIM
+
+        # `<=>` is pgvector's cosine distance; similarity is 1 - distance.
+        # The operator is applied explicitly rather than through
+        # Vector.cosine_distance: the column is a TypeDecorator, which does not
+        # inherit the wrapped type's comparator methods. The bind parameter is
+        # given the Vector type directly so it is sent as a vector literal
+        # rather than serialised as JSON.
+        query_vector = literal(embedding, Vector(EMBEDDING_DIM))
+        distance = SearchDocument.embedding.op("<=>", return_type=Float)(query_vector)
+        score = semantic_ratio * (1 - distance) + (1 - semantic_ratio) * keyword
 
     rows = (
         await db.execute(

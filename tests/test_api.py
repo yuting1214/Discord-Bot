@@ -100,3 +100,18 @@ def test_openapi_exposes_the_expected_surface():
     assert any(p.startswith("/api/v1/") for p in paths)
     # The sync mirror of every endpoint is gone; nothing should remain under it.
     assert not any(p.startswith("/api/v1/sync") for p in paths)
+
+
+def test_uvicorn_app_import_string_resolves():
+    """`uvicorn.run(app="...")` re-imports by name in the worker.
+
+    A stale string here fails only at run time -- it survived the move to src/
+    and broke the container, because every other test imports the app object
+    directly and never goes through this path.
+    """
+    from uvicorn.importer import import_from_string
+
+    from src.backend.fastapi.main import APP_IMPORT_STRING
+    from src.backend.fastapi.main import app as app_object
+
+    assert import_from_string(APP_IMPORT_STRING) is app_object

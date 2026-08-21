@@ -21,7 +21,11 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.6-luna")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.5"))
+# Unset by default, and omitted from the request when unset. Reasoning models
+# (including the default gpt-5.6-luna) reject any value but their own default,
+# so sending one unconditionally fails every call with a 400.
+_temperature = os.getenv("LLM_TEMPERATURE", "").strip()
+TEMPERATURE: float | None = float(_temperature) if _temperature else None
 REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
 MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 

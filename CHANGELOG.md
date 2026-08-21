@@ -74,7 +74,7 @@ referral link are unchanged.
   `langchain_community.chat_models`, both of which moved in LangChain 1.x, so a fresh
   install of the unpinned requirement resolved to 1.3 and failed to import. One OpenAI
   SDK now serves both OpenAI and OpenRouter. Worth **−36 MB** of resident floor,
-  −31 packages and −61 MB of image.
+  −31 packages and −61 MB of site-packages.
 - **Default models are `gpt-5.6-luna` / `openai/gpt-5.6-luna`**, and every model id is
   env-overridable. Hardcoding is what pinned the previous release to `gpt-3.5-turbo-0125`.
 - **Reasoning is persisted and replayed.** Reasoning models return a `reasoning_details`
@@ -97,6 +97,8 @@ referral link are unchanged.
 - **Guard test** asserts in a fresh interpreter that no removed dependency creeps back
   into either entrypoint — validated against a planted regression, so it is not inert.
 - Entrypoint import floor **124.5 MB → 104.5 MB**; locked packages **85 → 61**.
+- **Idle container 87.4 MB anon** (cgroup, measured against real PostgreSQL), with the
+  bot connected to the gateway and the API serving.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of
@@ -108,6 +110,15 @@ referral link are unchanged.
   import and shadow the settings machinery meant to read them.
 
 ### Fixed
+- **`temperature` is no longer sent unless explicitly configured.** Reasoning models --
+  including the default `gpt-5.6-luna` -- reject any value but their own and fail the
+  request with `400 Unsupported value: 'temperature'`. The hardcoded `0.5` would have
+  broken every completion on the default model. A rejected value is now retried without it.
+- `uvicorn.run(app=...)` still named the pre-`src/` module path, so the API thread died
+  on startup in the container while every test passed, because tests import the app
+  object directly and never go through that string.
+- pgvector's `cosine_distance` is not inherited through a `TypeDecorator`; the `<=>`
+  operator is applied explicitly, with the query vector bound as a vector literal.
 - `extract_uuid` returns a `str` while `Session.id` is a `UUID` column — `/resume_session`
   would have raised on every invocation. Search result ids had the same mismatch.
 - `crud/user.py` imported `Session` from both `sqlalchemy.orm` and the models package;

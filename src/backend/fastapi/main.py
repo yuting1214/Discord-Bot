@@ -102,10 +102,16 @@ for module in modules:
     app.include_router(module.router, prefix="/api/v1", tags=[label])
 
 
+# Uvicorn re-imports the app by name in the worker, so this string must stay in
+# step with the package layout. It is asserted in the test suite because a stale
+# value only fails at run time, never at import.
+APP_IMPORT_STRING = "src.backend.fastapi.main:app"
+
+
 def fastapi_server_run():
     # mounting at the root path
     uvicorn.run(
-        app="backend.fastapi.main:app",
+        app=APP_IMPORT_STRING,
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.ENV_MODE == "dev",  # Enables auto-reloading in development mode

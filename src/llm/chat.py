@@ -10,8 +10,11 @@ to be stored and replayed verbatim on the following turn, otherwise the model
 restarts its reasoning from scratch instead of continuing it.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+from openai import BadRequestError
 
 from src.llm.client import get_async_client, get_client
 from src.llm.config import (
@@ -22,6 +25,8 @@ from src.llm.config import (
     TEMPERATURE,
 )
 from src.llm.prompt.base_text_templates import TEXT_PROMPT_TEMPLATE_V1
+
+logger = logging.getLogger(__name__)
 
 Message = dict[str, Any]
 
@@ -68,6 +73,22 @@ def _extra_body(provider: str, reasoning: bool) -> dict | None:
     return None
 
 
+def _request_kwargs(provider: str, model: str | None, temperature: float | None, reasoning: bool) -> dict:
+    kwargs: dict = {
+        "model": model or _default_model(provider),
+        "extra_body": _extra_body(provider, reasoning),
+    }
+    # Only sent when explicitly configured: reasoning models reject any value
+    # but their own default and fail the whole call with a 400.
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    return kwargs
+
+
+def _rejected_temperature(error: BadRequestError) -> bool:
+    return "temperature" in str(error).lower()
+
+
 def _to_result(response) -> ChatResult:
     message = response.choices[0].message
     usage = response.usage
@@ -87,16 +108,21 @@ def chat(
     *,
     provider: str = DEFAULT_PROVIDER,
     model: str | None = None,
-    temperature: float = TEMPERATURE,
+    temperature: float | None = TEMPERATURE,
     reasoning: bool = REASONING_ENABLED,
 ) -> ChatResult:
     """Synchronous completion. Prefer :func:`achat` on the bot's hot path."""
-    response = get_client(provider).chat.completions.create(
-        model=model or _default_model(provider),
-        messages=build_messages(user_input, memory),
-        temperature=temperature,
-        extra_body=_extra_body(provider, reasoning),
-    )
+    messages = build_messages(user_input, memory)
+    kwargs = _request_kwargs(provider, model, temperature, reasoning)
+    client = get_client(provider)
+    try:
+        response = client.chat.completions.create(messages=messages, **kwargs)
+    except BadRequestError as e:
+        if temperature is None or not _rejected_temperature(e):
+            raise
+        logger.warning("Model %s rejected temperature=%s; retrying without it", kwargs["model"], temperature)
+        kwargs.pop("temperature")
+        response = client.chat.completions.create(messages=messages, **kwargs)
     return _to_result(response)
 
 
@@ -106,15 +132,19 @@ async def achat(
     *,
     provider: str = DEFAULT_PROVIDER,
     model: str | None = None,
-    temperature: float = TEMPERATURE,
+    temperature: float | None = TEMPERATURE,
     reasoning: bool = REASONING_ENABLED,
 ) -> ChatResult:
     """Asynchronous completion."""
+    messages = build_messages(user_input, memory)
+    kwargs = _request_kwargs(provider, model, temperature, reasoning)
     client = get_async_client(provider)
-    response = await client.chat.completions.create(
-        model=model or _default_model(provider),
-        messages=build_messages(user_input, memory),
-        temperature=temperature,
-        extra_body=_extra_body(provider, reasoning),
-    )
+    try:
+        response = await client.chat.completions.create(messages=messages, **kwargs)
+    except BadRequestError as e:
+        if temperature is None or not _rejected_temperature(e):
+            raise
+        logger.warning("Model %s rejected temperature=%s; retrying without it", kwargs["model"], temperature)
+        kwargs.pop("temperature")
+        response = await client.chat.completions.create(messages=messages, **kwargs)
     return _to_result(response)

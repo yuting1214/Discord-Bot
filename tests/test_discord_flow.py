@@ -307,3 +307,67 @@ async def test_search_returns_nothing_for_an_unrelated_query(wire, monkeypatch):
         # keyword-only, so an unrelated query scores zero and is filtered out
         results = await search_service.hybrid_search(db, index_key, "zzz", semantic_ratio=0.0)
     assert results == []
+
+
+async def test_temperature_is_omitted_unless_configured(monkeypatch):
+    """Reasoning models reject any temperature but their own default.
+
+    gpt-5.6-luna returns 400 'temperature does not support 0.5 with this model',
+    so sending it unconditionally broke every call against the default model.
+    """
+    from src.llm import chat as chat_module
+
+    captured = {}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop here")
+
+    class FakeClient:
+        chat = type("C", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(chat_module, "get_async_client", lambda p: FakeClient())
+
+    with pytest.raises(RuntimeError):
+        await chat_module.achat("hi", temperature=None)
+    assert "temperature" not in captured, captured.keys()
+
+    captured.clear()
+    with pytest.raises(RuntimeError):
+        await chat_module.achat("hi", temperature=0.5)
+    assert captured["temperature"] == 0.5
+
+
+async def test_a_rejected_temperature_is_retried_without_it(monkeypatch):
+    from openai import BadRequestError
+
+    from src.llm import chat as chat_module
+
+    calls = []
+
+    class FakeResponse:
+        model = "gpt-5.6-luna"
+        usage = type("U", (), {"prompt_tokens": 3, "completion_tokens": 2})()
+        choices = [type("C", (), {"message": type("M", (), {"content": "ok", "reasoning_details": None})()})()]
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs.copy())
+            if "temperature" in kwargs:
+                raise BadRequestError(
+                    "Unsupported value: 'temperature' does not support 0.5 with this model.",
+                    response=type("R", (), {"status_code": 400, "headers": {}, "request": None})(),
+                    body=None,
+                )
+            return FakeResponse()
+
+    class FakeClient:
+        chat = type("C", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(chat_module, "get_async_client", lambda p: FakeClient())
+
+    result = await chat_module.achat("hi", temperature=0.5)
+    assert result.text == "ok"
+    assert len(calls) == 2, "should retry exactly once"
+    assert "temperature" in calls[0] and "temperature" not in calls[1]
