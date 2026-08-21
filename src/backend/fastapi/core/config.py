@@ -23,26 +23,34 @@ class Settings(BaseSettings):
     # API KEY
     OPENAI_API_KEY: str
 
-    @property
-    def DB_URL(self):
-        if self.ENV_MODE == "dev":
-            return self.DEV_DB_URL
-        else:
-            if self.DATABASE_URL:
-                return self.DATABASE_URL
-            else:
-                return f'{self.DB_ENGINE}://{self.DB_USERNAME}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
 
     @property
     def ASYNC_DB_URL(self):
         if self.ENV_MODE == "dev":
             return "sqlite+aiosqlite:///./dev.db"
-        else:
-            if self.DATABASE_URL:
-                URL_split = self.DATABASE_URL.split("://")
-                return f"{URL_split[0]}+asyncpg://{URL_split[1]}"
-            else:
-                return f'{self.DB_ENGINE}+asyncpg://{self.DB_USERNAME}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
+        if self.DATABASE_URL:
+            scheme, _, rest = self.DATABASE_URL.partition("://")
+            return f"{scheme}+asyncpg://{rest}"
+        self._require_db_parts()
+        return f'{self.DB_ENGINE}+asyncpg://{self.DB_USERNAME}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
+
+    def _require_db_parts(self) -> None:
+        """Fail with something a deployer can act on.
+
+        Assembling a URL from blank parts produced
+        "invalid literal for int() with base 10: ''" from deep inside
+        SQLAlchemy's URL parser, which says nothing about what to set.
+        """
+        missing = [
+            name
+            for name in ("DB_ENGINE", "DB_USERNAME", "DB_HOST", "DB_PORT", "DB_NAME")
+            if not getattr(self, name, "")
+        ]
+        if missing:
+            raise RuntimeError(
+                "Database is not configured in prod mode. Set DATABASE_URL, or all of: "
+                + ", ".join(missing)
+            )
 
 
 class DevSettings(Settings):

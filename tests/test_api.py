@@ -115,3 +115,27 @@ def test_uvicorn_app_import_string_resolves():
     from src.backend.fastapi.main import app as app_object
 
     assert import_from_string(APP_IMPORT_STRING) is app_object
+
+
+def test_prod_without_a_database_says_what_to_set():
+    """Assembling a URL from blank parts used to fail deep inside SQLAlchemy with
+    "invalid literal for int() with base 10: ''", which names nothing to fix."""
+    import pytest
+
+    from src.backend.fastapi.core.config import ProdSettings
+
+    settings = ProdSettings(OPENAI_API_KEY="x", DATABASE_URL="")
+    with pytest.raises(RuntimeError) as excinfo:
+        _ = settings.ASYNC_DB_URL
+    message = str(excinfo.value)
+    assert "DATABASE_URL" in message
+    assert "DB_HOST" in message
+
+
+def test_database_url_is_converted_to_asyncpg():
+    from src.backend.fastapi.core.config import ProdSettings
+
+    settings = ProdSettings(
+        OPENAI_API_KEY="x", DATABASE_URL="postgresql://u:p@host:5432/db"
+    )
+    assert settings.ASYNC_DB_URL == "postgresql+asyncpg://u:p@host:5432/db"

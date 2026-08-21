@@ -117,6 +117,9 @@ referral link are unchanged.
 - `uvicorn.run(app=...)` still named the pre-`src/` module path, so the API thread died
   on startup in the container while every test passed, because tests import the app
   object directly and never go through that string.
+- **A missing database in prod now says what to set.** Assembling a connection URL from
+  blank parts failed deep inside SQLAlchemy with
+  `invalid literal for int() with base 10: ''`, naming nothing the deployer could act on.
 - pgvector's `cosine_distance` is not inherited through a `TypeDecorator`; the `<=>`
   operator is applied explicitly, with the query vector bound as a vector literal.
 - `extract_uuid` returns a `str` while `Session.id` is a `UUID` column — `/resume_session`
