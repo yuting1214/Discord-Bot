@@ -1,7 +1,8 @@
 import requests
-from backend.fastapi.request_handler.api_requests import post_request, get_request
-from backend.meilisearch.insert import initiate_index
+
 from backend.discord.utils import generate_uuid_key
+from backend.fastapi.request_handler.api_requests import get_request, post_request
+from backend.meilisearch.insert import initiate_index
 
 # def get_or_create_channel(server_id: str, channel_discord_id: str, channel_name: str, user_id: str, is_group: bool, resources_to_rollback: list) -> str:
 #     try:

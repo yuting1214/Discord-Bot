@@ -1,28 +1,30 @@
 import json
-from backend.fastapi.request_handler.api_requests import rollback_manager
-from backend.discord.utils import extract_uuid
+
 from backend.discord.operations.sync import (
-    llm_api_call,
-    prepare_memory_for_llm,
-    get_or_create_user,
-    manage_session,
-    find_active_sessions,
-    get_session_if_exists,
     activate_session,
-    deactivate_session,
-    create_conversation,
-    update_conversation,
-    create_message,
-    get_messages_by_conversations,
-    format_messages_to_search_results,
     create_command_log,
+    create_conversation,
+    create_message,
+    deactivate_session,
+    find_active_sessions,
+    format_messages_to_search_results,
+    get_messages_by_conversations,
+    get_or_create_user,
+    get_session_if_exists,
+    llm_api_call,
+    manage_session,
+    prepare_memory_for_llm,
+    update_conversation,
+)
+from backend.discord.utils import extract_uuid
+from backend.fastapi.request_handler.api_requests import rollback_manager
+from backend.meilisearch.format import (
+    format_documents_to_search_results,
+    format_search_results_to_conversation_ids_and_scores,
 )
 from backend.meilisearch.insert import insert_documents
 from backend.meilisearch.search import hybrid_search
-from backend.meilisearch.format import (
-    format_documents_to_search_results,
-   format_search_results_to_conversation_ids_and_scores
-)
+
 
 def start_or_resume_session(
         channel_id: str,

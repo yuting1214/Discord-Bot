@@ -1,11 +1,12 @@
 import os
-import json
+
 import discord
+
 from backend.discord.bot import DiscordClient, Sender
 from backend.discord.decorator_async import (
+    search_async_decorator,
     session_chat_async_decorator,
     session_resume_async_decorator,
-    search_async_decorator
 )
 
 
@@ -53,4 +54,13 @@ def discord_bot_run():
     async def search_group(interaction: discord.Interaction, *, user_input: str):
         pass 
 
-    client.run(os.getenv('DISCORD_TOKEN'))
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        # Passing None reaches discord.py as an opaque TypeError; say what is
+        # actually wrong, since this is the most common first-deploy mistake.
+        raise RuntimeError(
+            "DISCORD_TOKEN is not set. Create a bot at "
+            "https://discord.com/developers/applications and set its token."
+        )
+
+    client.run(token)

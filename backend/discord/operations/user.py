@@ -1,8 +1,9 @@
 import httpx
 import requests
-from backend.fastapi.request_handler.api_requests import post_request, get_request
-from backend.fastapi.request_handler.api_requests_async import post_request_async, get_request_async
-from backend.meilisearch.insert import initiate_index
+
+from backend.fastapi.request_handler.api_requests import get_request, post_request
+from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async
+
 
 def get_or_create_user(user_discord_id: str, user_name: str, resources_to_rollback: list) -> str:
     user_data = {"discord_id": user_discord_id}

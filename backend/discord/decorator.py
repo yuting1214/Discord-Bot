@@ -1,8 +1,10 @@
-import json
-import discord
 from functools import wraps
+
+import discord
+
 from backend.discord.bot import DiscordClient, Sender
 from backend.discord.run import complete_session_chat, resume_session, search_messages_and_list_sessions
+
 
 def session_chat_decorator(client: DiscordClient, sender: Sender, is_group: bool, is_new_session: bool):
     def decorator(func):

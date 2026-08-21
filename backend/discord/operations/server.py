@@ -1,6 +1,7 @@
 import requests
-from backend.fastapi.request_handler.api_requests import post_request, get_request
-from backend.meilisearch.insert import initiate_index
+
+from backend.fastapi.request_handler.api_requests import get_request, post_request
+
 
 def get_or_create_server(server_discord_id: str, server_name: str, owner_discord_id: str, user_id: str, resources_to_rollback: list) -> str:
     try:

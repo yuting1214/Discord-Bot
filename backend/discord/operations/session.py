@@ -1,12 +1,14 @@
 from datetime import datetime
+
 import httpx
 import requests
-from typing import List, Tuple, Dict, Optional
-from backend.constants import CURRENT_TIMEZONE
-from backend.fastapi.request_handler.api_requests import post_request, get_request, put_request
-from backend.fastapi.request_handler.api_requests_async import post_request_async, get_request_async, put_request_async
 
-def manage_session(channel_discord_id: str, user_id: str, is_group: bool, is_new_session: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+from backend.constants import CURRENT_TIMEZONE
+from backend.fastapi.request_handler.api_requests import get_request, post_request, put_request
+from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async, put_request_async
+
+
+def manage_session(channel_discord_id: str, user_id: str, is_group: bool, is_new_session: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     if is_new_session:
         terminate_active_sessions(channel_discord_id, user_id, is_group, resources_to_rollback)
         current_session = create_session(channel_discord_id, user_id, is_group, resources_to_rollback)
@@ -15,7 +17,7 @@ def manage_session(channel_discord_id: str, user_id: str, is_group: bool, is_new
     
     return current_session
 
-async def manage_session_async(channel_discord_id: str, user_id: str, is_group: bool, is_new_session: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+async def manage_session_async(channel_discord_id: str, user_id: str, is_group: bool, is_new_session: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     if is_new_session:
         await terminate_active_sessions_async(channel_discord_id, user_id, is_group, resources_to_rollback)
         current_session = await create_session_async(channel_discord_id, user_id, is_group, resources_to_rollback)
@@ -24,7 +26,7 @@ async def manage_session_async(channel_discord_id: str, user_id: str, is_group: 
     
     return current_session
 
-def get_session_if_exists(session_id: str) -> Optional[Dict]:
+def get_session_if_exists(session_id: str) -> dict | None:
     try:
         return get_request(f"sessions/{session_id}")
     except requests.exceptions.HTTPError as e:
@@ -33,7 +35,7 @@ def get_session_if_exists(session_id: str) -> Optional[Dict]:
         else:
             raise e
         
-async def get_session_if_exists_async(session_id: str) -> Optional[Dict]:
+async def get_session_if_exists_async(session_id: str) -> dict | None:
     async with httpx.AsyncClient() as client:
         try:
             return await get_request_async(f"sessions/{session_id}")
@@ -43,7 +45,7 @@ async def get_session_if_exists_async(session_id: str) -> Optional[Dict]:
             else:
                 raise e
         
-def create_session(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+def create_session(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     session_data = {
         "channel_discord_id": channel_discord_id,
         "is_active": True,
@@ -54,7 +56,7 @@ def create_session(channel_discord_id: str, user_id: str, is_group: bool, resour
     resources_to_rollback.append(("create", "sessions", {"resource_id": new_session["id"]}))
     return new_session
 
-async def create_session_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+async def create_session_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     session_data = {
         "channel_discord_id": channel_discord_id,
         "is_active": True,
@@ -65,7 +67,7 @@ async def create_session_async(channel_discord_id: str, user_id: str, is_group: 
     resources_to_rollback.append(("create", "sessions", {"resource_id": new_session["id"]}))
     return new_session
 
-def get_or_create_current_session(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+def get_or_create_current_session(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     session_data = {"channel_discord_id": channel_discord_id} if is_group else {"user_id": user_id}
     endpoint = f"sessions/current/{'group' if is_group else 'single'}/"
     
@@ -79,7 +81,7 @@ def get_or_create_current_session(channel_discord_id: str, user_id: str, is_grou
     
     return current_session
 
-async def get_or_create_current_session_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> Dict:
+async def get_or_create_current_session_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> dict:
     session_data = {"channel_discord_id": channel_discord_id} if is_group else {"user_id": user_id}
     endpoint = f"sessions/current/{'group' if is_group else 'single'}/"
     
@@ -93,7 +95,7 @@ async def get_or_create_current_session_async(channel_discord_id: str, user_id: 
     
     return current_session
 
-def terminate_active_sessions(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> None:
+def terminate_active_sessions(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> None:
     try:
         active_sessions = find_active_sessions(channel_discord_id, user_id, is_group)
     except requests.exceptions.HTTPError as e:
@@ -105,7 +107,7 @@ def terminate_active_sessions(channel_discord_id: str, user_id: str, is_group: b
         for session in active_sessions:
             deactivate_session(session["id"], session, resources_to_rollback)
 
-async def terminate_active_sessions_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: List[Tuple[str, str, dict]]) -> None:
+async def terminate_active_sessions_async(channel_discord_id: str, user_id: str, is_group: bool, resources_to_rollback: list[tuple[str, str, dict]]) -> None:
     try:
         active_sessions = await find_active_sessions_async(channel_discord_id, user_id, is_group)
     except httpx.HTTPStatusError as e:
@@ -117,13 +119,13 @@ async def terminate_active_sessions_async(channel_discord_id: str, user_id: str,
         for session in active_sessions:
             await deactivate_session_async(session["id"], session, resources_to_rollback)
 
-def find_active_sessions(channel_discord_id: str, user_id: str, is_group: bool) -> Optional[List[Dict]]:
+def find_active_sessions(channel_discord_id: str, user_id: str, is_group: bool) -> list[dict] | None:
     session_data = {"channel_discord_id": channel_discord_id} if is_group else {"user_id": user_id}
     endpoint = f"sessions/active/{'group' if is_group else 'single'}/"
     active_sessions = get_request(endpoint, session_data)
     return active_sessions
 
-async def find_active_sessions_async(channel_discord_id: str, user_id: str, is_group: bool) -> Optional[List[Dict]]:
+async def find_active_sessions_async(channel_discord_id: str, user_id: str, is_group: bool) -> list[dict] | None:
     session_data = {"channel_discord_id": channel_discord_id} if is_group else {"user_id": user_id}
     endpoint = f"sessions/active/{'group' if is_group else 'single'}/"
     active_sessions = await get_request_async(endpoint, session_data)
@@ -141,7 +143,7 @@ def activate_session(session_id: str,  target_session: dict, resources_to_rollba
         {"resource_id": session_id, "previous_state": target_session}
     ))
 
-async def activate_session_async(session_id: str, target_session: dict, resources_to_rollback: List[Tuple[str, str, dict]]) -> None:
+async def activate_session_async(session_id: str, target_session: dict, resources_to_rollback: list[tuple[str, str, dict]]) -> None:
     session_update_data = {
         "is_active": True,
         "end_time": None
@@ -165,7 +167,7 @@ def deactivate_session(session_id: str, target_session: dict, resources_to_rollb
         {"resource_id": session_id, "previous_state": target_session}
     ))
 
-async def deactivate_session_async(session_id: str, target_session: dict, resources_to_rollback: List[Tuple[str, str, dict]]) -> None:
+async def deactivate_session_async(session_id: str, target_session: dict, resources_to_rollback: list[tuple[str, str, dict]]) -> None:
     session_update_data = {
         "is_active": False,
         "end_time": datetime.now(CURRENT_TIMEZONE).isoformat()

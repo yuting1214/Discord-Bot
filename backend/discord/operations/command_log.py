@@ -1,5 +1,6 @@
-from backend.fastapi.request_handler.api_requests import post_request, get_request
-from backend.fastapi.request_handler.api_requests_async import post_request_async, get_request_async
+from backend.fastapi.request_handler.api_requests import get_request, post_request
+from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async
+
 
 def create_command_log(user_id: str, session_id: str, is_group: bool, is_new_session: bool, resources_to_rollback: list) -> dict:
     command_name = (

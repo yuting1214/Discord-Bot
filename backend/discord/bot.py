@@ -1,41 +1,80 @@
+import logging
+
 import discord
 
+logger = logging.getLogger(__name__)
+
+# Discord's hard limit for a single message.
+MESSAGE_LIMIT = 2000
+
+# This bot exposes slash commands only, so it needs no privileged intents.
+# `Intents.default()` deliberately excludes message_content, members and
+# presences: requesting message_content without enabling it in the Discord
+# Developer Portal makes login fail outright with PrivilegedIntentsRequired.
 intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True  
-intents.guild_messages = True
+
 
 class DiscordClient(discord.Client):
     def __init__(self) -> None:
-        super().__init__(intents=intents)
-        self.synced = False
-        self.added = False
+        super().__init__(
+            intents=intents,
+            activity=discord.Activity(
+                type=discord.ActivityType.watching, name="LLM-based ChatBot!"
+            ),
+        )
         self.tree = discord.app_commands.CommandTree(self)
-        self.activity = discord.Activity(type=discord.ActivityType.watching, name="LLM-based ChatBot!")
 
-    async def on_ready(self):
-        await self.wait_until_ready()
-        if not self.synced:
-            await self.tree.sync()
-            self.synced = True
-        if not self.added:
-            self.added = True
-        print(f'{self.user} is connected to the following guild(s):')
-            
+    async def setup_hook(self) -> None:
+        """Sync the command tree exactly once, before the gateway connects.
+
+        Syncing from on_ready instead would re-run on every reconnect, and the
+        sync endpoint is sharply rate limited.
+        """
+        synced = await self.tree.sync()
+        logger.info("Synced %d application command(s)", len(synced))
+
+    async def on_ready(self) -> None:
+        logger.info("%s is connected to %d guild(s)", self.user, len(self.guilds))
         for guild in self.guilds:
-            print(f'{guild.name} (id: {guild.id})')
+            logger.debug("  guild: %s (id: %s)", guild.name, guild.id)
+
+
+def chunk_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
+    """Split ``text`` into Discord-sized pieces, preferring clean boundaries.
+
+    Tries paragraph, then line, then word boundaries before falling back to a
+    hard cut, so responses are not severed mid-word.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        window = remaining[:limit]
+        # Prefer the latest boundary available within the window.
+        split = max(window.rfind("\n\n"), window.rfind("\n"), window.rfind(" "))
+        if split <= 0:
+            split = limit  # no boundary: hard cut rather than emit nothing
+        chunks.append(remaining[:split].rstrip())
+        remaining = remaining[split:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
 
 class Sender:
-    async def send_message(self, interaction: discord.Interaction, user_message: str, llm_response: str):
+    async def send_message(
+        self, interaction: discord.Interaction, user_message: str, llm_response: str
+    ) -> None:
+        response = f'> **{user_message}** - <@{interaction.user.id}> \n\n {llm_response}'
         try:
-            user_id = interaction.user.id
-            response = f'> **{user_message}** - <@{str(user_id)}> \n\n {llm_response}'
-            
-            # Split the response into chunks of 2000 characters for Discord
-            response_chunks = [response[i:i+2000] for i in range(0, len(response), 2000)]
-            
-            # Send each chunk separately
-            for chunk in response_chunks:
+            for chunk in chunk_message(response):
                 await interaction.followup.send(chunk)
-        except Exception as e:
-            await interaction.followup.send('> **Error: Something went wrong, please try again later!**')
+        except discord.HTTPException:
+            # Log the cause rather than discarding it; the user only ever saw a
+            # generic failure string before.
+            logger.exception("Failed to deliver response to Discord")
+            await interaction.followup.send(
+                "> **Error: Something went wrong, please try again later!**"
+            )

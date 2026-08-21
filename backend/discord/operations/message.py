@@ -1,6 +1,7 @@
-from typing import List, Dict
+
 from backend.fastapi.request_handler.api_requests import get_request, post_request
 from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async
+
 
 def create_message(channel_discord_id: str, session_id: str, conversation_id: str, user_id: str, message_type: str, user_input: str, resources_to_rollback: list, reasoning_details: list | None = None) -> dict:
     message_data = {
@@ -37,13 +38,13 @@ def get_messages_by_conversations(conversation_ids: list) -> list:
     }
     return get_request("messages/conversations/", query)
 
-async def get_messages_by_conversations_async(conversation_ids: List[str]) -> list:
+async def get_messages_by_conversations_async(conversation_ids: list[str]) -> list:
     query = {
         "conversation_ids": conversation_ids
     }
     return await get_request_async("messages/conversations/", query)
 
-def format_messages_to_search_results(messages: List[Dict[str, str]], scores: List[float]) -> list:
+def format_messages_to_search_results(messages: list[dict[str, str]], scores: list[float]) -> list:
     search_results = []
     message_dict_pair = {}
     scores_index = 0

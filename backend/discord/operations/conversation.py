@@ -1,7 +1,9 @@
 from datetime import datetime
+
 from backend.constants import CURRENT_TIMEZONE
 from backend.fastapi.request_handler.api_requests import get_request, post_request, put_request
 from backend.fastapi.request_handler.api_requests_async import get_request_async, post_request_async, put_request_async
+
 
 def create_conversation(session_id: str, resources_to_rollback: list) -> dict:
     conversation_data = {"session_id": session_id}

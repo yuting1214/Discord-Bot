@@ -1,7 +1,7 @@
+import hashlib
 import re
 import uuid
-import hashlib
-from typing import Union
+
 
 def extract_uuid(input_string: str) -> str:
     """
@@ -35,7 +35,7 @@ def extract_uuid(input_string: str) -> str:
     
     return ""
 
-def generate_uuid_key(uuid1: Union[uuid.UUID, str], uuid2: Union[uuid.UUID, str]) -> str:
+def generate_uuid_key(uuid1: uuid.UUID | str, uuid2: uuid.UUID | str) -> str:
     # Ensure the inputs are UUID objects or valid UUID strings
     if isinstance(uuid1, str):
         uuid1 = uuid.UUID(uuid1)
