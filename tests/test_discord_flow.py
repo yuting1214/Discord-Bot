@@ -379,3 +379,34 @@ async def test_a_rejected_temperature_is_retried_without_it(monkeypatch):
     assert result.text == "ok"
     assert len(calls) == 2, "should retry exactly once"
     assert "temperature" in calls[0] and "temperature" not in calls[1]
+
+
+async def test_short_replies_are_not_marked_truncated(wire, monkeypatch):
+    """Search used to append "...to be continued." to every reply, including
+    ones well under the limit."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat(text="Paris."))
+    await run_async.complete_session_chat(
+        **CTX, user_input="capital of france", is_group=False, is_new_session=True
+    )
+    message = (
+        await run_async.search_messages_and_list_sessions(
+            **CTX, user_input="capital of france", is_group=False
+        )
+    )["message"]
+    assert "Paris." in message
+    assert "to be continued" not in message
+    assert "…" not in message
+
+
+async def test_long_replies_are_truncated_with_an_ellipsis(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat(text="x" * 400))
+    await run_async.complete_session_chat(
+        **CTX, user_input="tell me a long story", is_group=False, is_new_session=True
+    )
+    message = (
+        await run_async.search_messages_and_list_sessions(
+            **CTX, user_input="tell me a long story", is_group=False
+        )
+    )["message"]
+    assert "…" in message
+    assert "x" * 260 not in message

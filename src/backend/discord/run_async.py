@@ -55,7 +55,9 @@ def _format_messages_to_search_results(messages: list[dict], scores: list[float]
                 "user_input": message["content"],
             }
         elif pair:
-            pair["llm_response"] = message["content"][:250] + "...to be continued."
+            reply = message["content"]
+            # Only mark it truncated when it actually was.
+            pair["llm_response"] = reply if len(reply) <= 250 else reply[:250] + "…"
             search_results.append(pair)
             pair = {}
             score_index += 1
