@@ -102,6 +102,16 @@ referral link are unchanged.
 - **Idle container 87.4 MB anon** (cgroup, measured against real PostgreSQL), with the
   bot connected to the gateway and the API serving.
 
+### Upgrades
+- **Columns added to already-deployed tables are now backfilled on boot.**
+  `create_all` creates missing *tables* and leaves existing ones untouched, so
+  `messages.reasoning_details` would never have appeared on an existing database —
+  and every insert referencing it would have failed. With GitHub-sourced templates
+  receiving auto-update delivery, that would have reached every live deployment.
+  Startup now reconciles missing nullable columns against the models, idempotently.
+  A required column is logged as needing a migration rather than added with an
+  invented default.
+
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of
   whatever process was running. The test suite could not collect a single test, and the

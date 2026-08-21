@@ -65,34 +65,17 @@ def test_llm_layer_does_not_import_the_web_app():
 
 def test_connection_pool_is_sized_for_an_idle_service():
     """pool_size connections are held forever; max_overflow closes on return."""
-    from src.backend.fastapi.dependencies import database
+    from src.backend.fastapi.dependencies.database import pool_options_for
 
-    # SQLite takes no pool arguments, so assert the intent that is applied to
-    # every other backend.
-    options = database._pool_options
-    if not options:
-        pytest.skip("SQLite in use; pool sizing does not apply")
-    assert options["pool_size"] <= 2, "permanent connections are billed idle memory"
-    assert options["max_overflow"] >= 8, "burst headroom should stay generous"
+    options = pool_options_for("postgresql+asyncpg://u:p@localhost:5432/db")
+    assert options["pool_size"] == 1, "permanent connections are billed idle memory"
+    assert options["max_overflow"] == 12, "burst headroom should stay generous"
     assert options["pool_pre_ping"] is True
+    assert options["pool_recycle"] == 1800
 
 
-def test_pool_options_are_applied_to_a_postgres_url(monkeypatch):
-    """The sizing must actually reach a non-SQLite engine, not just be defined."""
-    import importlib
+def test_sqlite_takes_no_pool_arguments():
+    """SQLite rejects them outright, so development must get an empty set."""
+    from src.backend.fastapi.dependencies.database import pool_options_for
 
-    from src.backend.fastapi.dependencies import database
-
-    monkeypatch.setattr(
-        database.settings.__class__,
-        "ASYNC_DB_URL",
-        property(lambda self: "postgresql+asyncpg://u:p@localhost:5432/db"),
-    )
-    reloaded = importlib.reload(database)
-    try:
-        assert reloaded._pool_options["pool_size"] == 1
-        assert reloaded._pool_options["max_overflow"] == 12
-        assert reloaded._pool_options["pool_pre_ping"] is True
-    finally:
-        monkeypatch.undo()
-        importlib.reload(database)
+    assert pool_options_for("sqlite+aiosqlite:///./dev.db") == {}
