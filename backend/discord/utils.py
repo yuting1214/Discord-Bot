@@ -30,8 +30,8 @@ def extract_uuid(input_string: str) -> str:
         try:
             uuid_obj = uuid.UUID(potential_uuid, version=4)
             return str(uuid_obj)
-        except ValueError:
-            raise ValueError(f"The extracted string '{potential_uuid}' is not a valid UUID4.")
+        except ValueError as e:
+            raise ValueError(f"The extracted string '{potential_uuid}' is not a valid UUID4.") from e
     
     return ""
 

@@ -46,7 +46,8 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-ignore = ["E501"]
+# B008: `Depends()` / `Query()` in argument defaults is the FastAPI idiom.
+ignore = ["E501", "B008"]
 
 [build-system]
 requires = ["hatchling"]

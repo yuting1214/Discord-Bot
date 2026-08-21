@@ -88,8 +88,8 @@ class SessionService:
             self.db_sync.query(SessionModel)
             .filter(
                 SessionModel.users.any(id=user_id),
-                SessionModel.is_group == False,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(False),
+                SessionModel.is_active.is_(True)
             )
             .order_by(SessionModel.start_time.desc())  # Order by start_time descending
             .first()
@@ -106,8 +106,8 @@ class SessionService:
             .join(SessionModel.users)
             .filter(
                 User.id == user_id,
-                SessionModel.is_group == False,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(False),
+                SessionModel.is_active.is_(True)
             )
             .order_by(desc(SessionModel.start_time))
         )
@@ -125,8 +125,8 @@ class SessionService:
             self.db_sync.query(SessionModel)
             .filter(
                 SessionModel.channel_discord_id == channel_discord_id,
-                SessionModel.is_group == True,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(True),
+                SessionModel.is_active.is_(True)
             )
             .order_by(SessionModel.start_time.desc())  # Order by start_time descending
             .first()
@@ -142,8 +142,8 @@ class SessionService:
             select(SessionModel)
             .filter(
                 SessionModel.channel_discord_id == channel_discord_id,
-                SessionModel.is_group == True,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(True),
+                SessionModel.is_active.is_(True)
             )
             .order_by(desc(SessionModel.start_time))
         )
@@ -209,8 +209,8 @@ class SessionService:
             self.db_sync.query(SessionModel)
             .filter(
                 SessionModel.users.any(id=user_id),
-                SessionModel.is_group == False,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(False),
+                SessionModel.is_active.is_(True)
             )
             .all()
         )
@@ -225,8 +225,8 @@ class SessionService:
             .join(SessionModel.users)
             .filter(
                 User.id == user_id,
-                SessionModel.is_group == False,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(False),
+                SessionModel.is_active.is_(True)
             )
         )
         
@@ -243,8 +243,8 @@ class SessionService:
             self.db_sync.query(SessionModel)
             .filter(
                 SessionModel.channel_discord_id == channel_discord_id,
-                SessionModel.is_group == True,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(True),
+                SessionModel.is_active.is_(True)
             )
             .all()
         )
@@ -258,8 +258,8 @@ class SessionService:
             select(SessionModel)
             .filter(
                 SessionModel.channel_discord_id == channel_discord_id,
-                SessionModel.is_group == True,
-                SessionModel.is_active == True
+                SessionModel.is_group.is_(True),
+                SessionModel.is_active.is_(True)
             )
         )
         

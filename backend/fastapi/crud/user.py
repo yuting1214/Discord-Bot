@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload
 
 from backend.fastapi.dependencies.database import get_async_db, get_sync_db
-from backend.fastapi.models import Session, User
+from backend.fastapi.models import Session as SessionModel  # noqa: F401
+from backend.fastapi.models import User
 from backend.fastapi.schemas import UserBase, UserCreate
 
 

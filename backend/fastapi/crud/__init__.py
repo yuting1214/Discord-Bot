@@ -9,3 +9,15 @@ from .server import ServerService
 from .session import SessionService
 from .user import UserService
 
+__all__ = [
+    "ChannelService",
+    "CommandLogService",
+    "CommandService",
+    "ConversationService",
+    "LLMService",
+    "LLMUsageService",
+    "MessageService",
+    "ServerService",
+    "SessionService",
+    "UserService",
+]
