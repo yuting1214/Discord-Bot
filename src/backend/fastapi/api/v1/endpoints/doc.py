@@ -32,7 +32,7 @@ async def health(db: AsyncSession = Depends(get_async_db)):
 # Endpoint for login form
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 @router.post("/login", response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
@@ -41,7 +41,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
         return RedirectResponse(url="/docs", status_code=303)
     else:
         message = "Invalid credentials"
-        return templates.TemplateResponse("login.html", {"request": request, "message": message})
+        return templates.TemplateResponse(request, "login.html", {"message": message})
     
 @router.get("/logout", response_class=HTMLResponse)
 async def logout(request: Request):

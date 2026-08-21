@@ -1,8 +1,8 @@
+import asyncio
 import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from threading import Thread
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from src.backend.data.discord_command import command_data
-from src.backend.discord.register import discord_bot_run
+from src.backend.discord.register import build_client, run_discord_bot
 from src.backend.fastapi.api.v1.endpoints import (
     channel,
     command,
@@ -50,10 +50,36 @@ async def lifespan(app: FastAPI):
         finally:
             await db.close()
 
-    yield
+    # The bot shares this event loop with the web application on purpose. Giving
+    # it a loop of its own (a thread running client.run()) means both halves use
+    # the same SQLAlchemy engine from two loops, and a pooled connection created
+    # on one fails on the other with "got Future attached to a different loop".
+    client = build_client()
+    bot_task = asyncio.create_task(run_discord_bot(client), name="discord-bot")
+    bot_task.add_done_callback(_report_bot_exit)
 
-    # Shutdown: dispose engine
-    await async_engine.dispose()
+    try:
+        yield
+    finally:
+        if not client.is_closed():
+            await client.close()
+        bot_task.cancel()
+        try:
+            await bot_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        await async_engine.dispose()
+
+
+def _report_bot_exit(task: asyncio.Task) -> None:
+    """Surface a bot that died instead of letting it fail silently."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logging.getLogger(__name__).critical(
+            "Discord client stopped: %s", error, exc_info=error
+        )
 
 # Initialize the FastAPI app
 app = FastAPI(lifespan=lifespan)
@@ -112,7 +138,7 @@ APP_IMPORT_STRING = "src.backend.fastapi.main:app"
 
 
 def fastapi_server_run():
-    # mounting at the root path
+    """Run the whole service: the web application, with the bot inside it."""
     uvicorn.run(
         app=APP_IMPORT_STRING,
         host=settings.HOST,
@@ -120,10 +146,6 @@ def fastapi_server_run():
         reload=settings.ENV_MODE == "dev",  # Enables auto-reloading in development mode
     )
 
-def keep_alive():
-    t = Thread(target=fastapi_server_run)
-    t.start()
 
-if __name__ == '__main__':
-    keep_alive()
-    discord_bot_run()
+if __name__ == "__main__":
+    fastapi_server_run()

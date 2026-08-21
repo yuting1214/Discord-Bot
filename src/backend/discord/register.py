@@ -10,7 +10,8 @@ from src.backend.discord.decorator_async import (
 )
 
 
-def discord_bot_run():
+def build_client() -> DiscordClient:
+    """Construct the client and register every slash command on its tree."""
     client = DiscordClient()
     sender = Sender()
 
@@ -54,6 +55,10 @@ def discord_bot_run():
     async def search_group(interaction: discord.Interaction, *, user_input: str):
         pass 
 
+    return client
+
+
+def discord_token() -> str:
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         # Passing None reaches discord.py as an opaque TypeError; say what is
@@ -62,5 +67,16 @@ def discord_bot_run():
             "DISCORD_TOKEN is not set. Create a bot at "
             "https://discord.com/developers/applications and set its token."
         )
+    return token
 
-    client.run(token)
+
+async def run_discord_bot(client: DiscordClient) -> None:
+    """Run the bot on the *current* event loop until it is cancelled.
+
+    Deliberately `client.start()` rather than `client.run()`: run() builds and
+    owns an event loop of its own. Running the bot on a second loop while the
+    web application runs on another means the two share one SQLAlchemy engine
+    across event loops, and a pooled connection created on one loop fails on the
+    other with "got Future attached to a different loop".
+    """
+    await client.start(discord_token())

@@ -123,6 +123,17 @@ referral link are unchanged.
   import and shadow the settings machinery meant to read them.
 
 ### Fixed
+- **The bot and the web application now share one event loop.** They ran on two: uvicorn
+  in a background thread, discord.py in the main thread. Both halves use the same
+  SQLAlchemy engine, so once the bot began talking to the database directly, a connection
+  pooled on one loop was checked out on the other and asyncpg failed with
+  `got Future attached to a different loop` — every slash command returned an error while
+  every test passed. The bot is now a task inside the application's lifespan.
+- **`/login` returned 500.** The handler used the old
+  `TemplateResponse("name", {"request": ...})` signature; newer Starlette reads the first
+  positional argument as the request, so the template name arrived as a dict and Jinja
+  raised `unhashable type: 'dict'`. Every earlier test stopped at the redirect to /login
+  without following it.
 - **`temperature` is no longer sent unless explicitly configured.** Reasoning models --
   including the default `gpt-5.6-luna` -- reject any value but their own and fail the
   request with `400 Unsupported value: 'temperature'`. The hardcoded `0.5` would have

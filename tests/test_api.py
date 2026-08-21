@@ -139,3 +139,36 @@ def test_database_url_is_converted_to_asyncpg():
         OPENAI_API_KEY="x", DATABASE_URL="postgresql://u:p@host:5432/db"
     )
     assert settings.ASYNC_DB_URL == "postgresql+asyncpg://u:p@host:5432/db"
+
+
+def test_login_page_renders(client):
+    """The login form must actually render.
+
+    Every earlier test followed /docs -> 302 /login and stopped there, so the
+    deprecated TemplateResponse("name", {"request": ...}) signature went
+    unnoticed until it 500'd in production: newer Starlette reads the first
+    positional as the request, so the template name became a dict and Jinja
+    raised "unhashable type: 'dict'".
+    """
+    response = client.get("/login")
+    assert response.status_code == 200, response.text[:400]
+    assert "<form" in response.text.lower()
+
+
+def test_docs_redirect_target_is_reachable(client):
+    """Follow the redirect all the way, not just to its Location header."""
+    response = client.get("/docs", follow_redirects=True)
+    assert response.status_code == 200
+    assert "<form" in response.text.lower()
+
+
+def test_failed_login_rerenders_the_form_with_a_message(client, monkeypatch):
+    authentication.get_credentials.cache_clear()
+    monkeypatch.setattr(authentication.settings, "USER_NAME", "alice")
+    monkeypatch.setattr(authentication.settings, "PASSWORD", "s3cret-passphrase")
+    response = client.post(
+        "/login", data={"username": "alice", "password": "wrong"}, follow_redirects=False
+    )
+    assert response.status_code == 200, response.text[:300]
+    assert "Invalid credentials" in response.text
+    authentication.get_credentials.cache_clear()
