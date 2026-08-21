@@ -99,8 +99,9 @@ referral link are unchanged.
 - **Guard test** asserts in a fresh interpreter that no removed dependency creeps back
   into either entrypoint — validated against a planted regression, so it is not inert.
 - Entrypoint import floor **124.5 MB → 104.5 MB**; locked packages **85 → 61**.
-- **Idle container 87.4 MB anon** (cgroup, measured against real PostgreSQL), with the
-  bot connected to the gateway and the API serving.
+- **Idle service 104.9 MB on Railway** (`MEMORY_USAGE_GB`, measured on a real deploy with
+  the bot connected to the gateway and the API serving); 87.4 MB anon in a local container
+  against the same PostgreSQL image.
 
 ### Upgrades
 - **Columns added to already-deployed tables are now backfilled on boot.**
