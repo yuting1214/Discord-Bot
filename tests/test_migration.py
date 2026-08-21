@@ -6,7 +6,6 @@ deployments receiving auto-updates, that would mean a bot which fails on every
 message it tries to store.
 """
 
-import asyncio
 
 import pytest
 from sqlalchemy import Column, String, inspect, text
@@ -78,60 +77,3 @@ async def test_a_required_column_is_reported_not_guessed(tmp_path, caplog):
     finally:
         Message.__table__._columns.remove(Message.__table__.c.mandatory_field)
     await engine.dispose()
-
-
-async def test_startup_waits_for_the_database_to_appear(monkeypatch, caplog):
-    """Private networking is not up the instant a container starts.
-
-    On Railway the database is reached over *.railway.internal, which does not
-    resolve for the first moment of a container's life. Connecting immediately
-    raised "Name or service not known" and the app exited -- on a healthy
-    deployment. Observed on a real deploy before this retry existed.
-    """
-    from src.backend.fastapi.dependencies import database
-
-    attempts = {"n": 0}
-
-    async def flaky():
-        attempts["n"] += 1
-        if attempts["n"] < 3:
-            raise OSError(-2, "Name or service not known")
-
-    monkeypatch.setattr(database, "_prepare_schema", flaky)
-    # database.asyncio IS the asyncio module, so capture the real sleep first
-    # or the replacement calls itself.
-    real_sleep = asyncio.sleep
-    monkeypatch.setattr(database.asyncio, "sleep", lambda _: real_sleep(0))
-
-    with caplog.at_level("WARNING"):
-        await database.init_db()
-
-    assert attempts["n"] == 3, "should have retried until it succeeded"
-    assert "not reachable yet" in caplog.text
-
-
-async def test_startup_gives_up_on_a_database_that_never_appears(monkeypatch):
-    """A genuinely misconfigured database must not be retried forever."""
-    from src.backend.fastapi.dependencies import database
-
-    async def never():
-        raise OSError(-2, "Name or service not known")
-
-    monkeypatch.setattr(database, "_prepare_schema", never)
-    real_sleep = asyncio.sleep
-    monkeypatch.setattr(database.asyncio, "sleep", lambda _: real_sleep(0))
-
-    with pytest.raises(OSError):
-        await database.init_db(max_wait=2.0)
-
-
-async def test_a_real_error_is_not_swallowed_by_the_retry(monkeypatch):
-    """Only connection-shaped failures are retried; a bug should surface."""
-    from src.backend.fastapi.dependencies import database
-
-    async def bug():
-        raise ValueError("a genuine programming error")
-
-    monkeypatch.setattr(database, "_prepare_schema", bug)
-    with pytest.raises(ValueError):
-        await database.init_db()

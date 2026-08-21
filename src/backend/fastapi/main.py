@@ -27,7 +27,7 @@ from src.backend.fastapi.api.v1.endpoints import (
 )
 from src.backend.fastapi.core.init_settings import global_settings as settings
 from src.backend.fastapi.crud.command import create_init_command_async
-from src.backend.fastapi.dependencies.database import AsyncSessionLocal, init_db
+from src.backend.fastapi.dependencies.database import AsyncSessionLocal, async_engine, init_db
 from src.backend.security.authentication import log_credentials_once
 
 
@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
             await db.close()
 
     yield
+
+    # Shutdown: dispose engine
+    await async_engine.dispose()
 
 # Initialize the FastAPI app
 app = FastAPI(lifespan=lifespan)

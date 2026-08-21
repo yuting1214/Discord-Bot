@@ -1,18 +1,18 @@
-import asyncio
 import logging
 
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.schema import CreateColumn
 
 from src.backend.fastapi.core.init_settings import global_settings as settings
 
 logger = logging.getLogger(__name__)
 
-# Base class for the database models
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
+
 
 def pool_options_for(url: str) -> dict:
     """Engine pool settings for ``url``.
@@ -37,14 +37,10 @@ def pool_options_for(url: str) -> dict:
     }
 
 
-_pool_options = pool_options_for(settings.ASYNC_DB_URL)
-
 async_engine = create_async_engine(
-    settings.ASYNC_DB_URL, echo=False, future=True, **_pool_options
+    settings.ASYNC_DB_URL, echo=False, **pool_options_for(settings.ASYNC_DB_URL)
 )
-AsyncSessionLocal = async_sessionmaker(
-    bind=async_engine, expire_on_commit=False, class_=AsyncSession
-)
+AsyncSessionLocal = async_sessionmaker(bind=async_engine, expire_on_commit=False)
 
 
 async def get_async_db():
@@ -90,45 +86,12 @@ def _add_missing_columns(connection) -> None:
             logger.info("Added missing column %s.%s", table.name, column.name)
 
 
-async def _prepare_schema() -> None:
-    # pgvector must exist before create_all: search_documents.embedding is
-    # declared as `vector` on PostgreSQL and the DDL fails without it. The
-    # extension ships with Railway's postgres-ssl image, so this only enables it.
+async def init_db() -> None:
     async with async_engine.begin() as conn:
+        # pgvector must exist before create_all: search_documents.embedding is
+        # declared as `vector` on PostgreSQL and the DDL fails without it. The
+        # extension ships with Railway's postgres-ssl image.
         if async_engine.dialect.name == "postgresql":
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
-
-
-async def init_db(max_wait: float = 90.0) -> None:
-    """Prepare the schema, waiting for the database to become reachable.
-
-    Platform private networking is not up the instant a container starts. On
-    Railway the database is reached over `*.railway.internal`, which does not
-    resolve for the first moment of a container's life, so connecting
-    immediately fails with "Name or service not known" and the application
-    exits -- on a perfectly healthy deployment. Observed on a real deploy.
-
-    Retries with backoff rather than failing the boot, and still gives up
-    eventually so a genuinely misconfigured database is not retried forever.
-    """
-    delay, waited, attempt = 0.5, 0.0, 0
-    while True:
-        attempt += 1
-        try:
-            await _prepare_schema()
-            if attempt > 1:
-                logger.info("Database reachable after %d attempts (%.1fs)", attempt, waited)
-            return
-        except (OSError, SQLAlchemyError) as e:
-            if waited >= max_wait:
-                logger.error("Database unreachable after %.0fs, giving up", waited)
-                raise
-            logger.warning(
-                "Database not reachable yet (%s); retrying in %.1fs",
-                type(e).__name__, delay,
-            )
-            await asyncio.sleep(delay)
-            waited += delay
-            delay = min(delay * 2, 5.0)
