@@ -1,30 +1,42 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim as builder
+# ---- Build stage: resolve and install dependencies with uv ----
+FROM python:3.12-slim AS builder
 
-# Set the working directory in the container to /app
+# Compile .pyc at install time: faster cold start, lower peak RSS on boot
+ENV PYTHONUNBUFFERED=1
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
 WORKDIR /app
 
-# Add current directory code to /app in the container
-ADD . /app
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --upgrade pip && \
-    pip install --user -r requirements.txt
+# Dependency layer first, so application edits don't invalidate the slow install
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# This is the second stage where we create the runtime image
-FROM python:3.9-slim
+COPY . .
+RUN uv sync --frozen --no-dev --no-editable
 
-# Copy the dependencies from the build stage
-COPY --from=builder /root/.local /root/.local
+# ---- Final stage: runtime only (no uv, no build context) ----
+FROM python:3.12-slim
 
-# Make sure scripts in .local are usable:
-ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
 
-# Set the working directory in the container to /app
+# Cap glibc malloc arenas and return freed memory to the OS sooner.
+# Railway bills by memory per minute; these cut idle RSS 10-30MB for free.
+ENV MALLOC_ARENA_MAX=2
+ENV MALLOC_TRIM_THRESHOLD_=100000
+
 WORKDIR /app
 
-# Add current directory code to /app in the container
-ADD . /app
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/backend /app/backend
+COPY --from=builder /app/frontend /app/frontend
+COPY --from=builder /app/llm /app/llm
 
-# Command to run the uvicorn server
-CMD ["python", "-m", "backend.fastapi.main", "--mode", "prod", "--host", "0.0.0.0"]
+ENV HOST=0.0.0.0
+EXPOSE 5000
+
+# Exec the venv python directly: `uv run` would keep a ~25MB wrapper process
+# resident in the container, which counts toward billed memory.
+CMD ["/app/.venv/bin/python", "-m", "backend.fastapi.main", "--mode", "prod", "--host", "0.0.0.0"]
