@@ -114,7 +114,10 @@ RUN set -eux; \
 # for it to decide whether to initialise the database. Do not override the
 # command at deploy time: that drops the arguments Railway's wrapper needs
 # (`-p 5432 -c listen_addresses=*`) and the server never starts.
-COPY docker/postgres-search/entrypoint.sh /usr/local/bin/postgres-search-entrypoint.sh
+# Context-relative. Railway builds this service with its root directory as the
+# build context, so a path prefixed with docker/postgres-search/ resolves to
+# docker/postgres-search/docker/postgres-search/ and the build fails.
+COPY entrypoint.sh /usr/local/bin/postgres-search-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/postgres-search-entrypoint.sh
 
 ENTRYPOINT ["postgres-search-entrypoint.sh"]
