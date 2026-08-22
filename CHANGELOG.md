@@ -17,21 +17,20 @@ All notable changes to this project will be documented in this file.
 ### Database
 - **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`
   18.6 extended with `vchord_bm25`, keeping pgvector, pgBackRest and the SSL wrapper.
-- **6.5 MB idle** (47.7 MB on Railway). `pg_tokenizer` was evaluated and rejected: it
+- **6.7 MB idle**, against 6.4 MB for the stock image. `pg_tokenizer` was evaluated and rejected: it
   costs ~331 MB resident *and* ranks CJK worse, because its `unicode_segmentation`
   emits character unigrams — on a query for 麵包 it ranked two decoys above the correct
   document.
-- **CJK via character bigrams** (`analyzer.sql`), the strategy Lucene's CJKAnalyzer
-  uses, generated in SQL at no measurable cost.
+- **Multilingual analysis in SQL** (`analyzer.sql`), at no measurable memory cost.
 - **Vocabulary cardinality is now controlled.** `vchord_bm25` spends ~8 KB of index per
   distinct term regardless of how many documents contain it, so ids, hashes and URLs —
   the bulk of chat data — dominated index size. `analyzer.sql` now uses its own text
   search configuration with those token types unmapped. On 20,000 chat-shaped rows:
   **641 MB → 736 KB** of index, 81,714 → 15 vocabulary terms. Numbers are no longer
   terms of their own; the README documents how to put them back.
-- **Thai, Lao, Khmer and Myanmar now segment.** They were falling through to
+- **Thai, Lao, Khmer and Burmese now segment at all.** They were falling through to
   `to_tsvector`, which returns an entire phrase as a single token that only matches an
-  identical phrase. Also added to the bigram path: CJK extensions A and B, compatibility
+  identical phrase. Also newly recognised: CJK extensions A and B, compatibility
   ideographs, hangul compatibility jamo, and halfwidth katakana including its voiced
   sound marks.
 - **`tsearch_data` is writable by `postgres`.** It ships `root:root`, which made custom
