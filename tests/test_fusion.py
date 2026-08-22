@@ -6,6 +6,8 @@ so a nominal 50/50 split behaved as roughly 90% semantic. RRF combines ranks,
 which have no scale to mismatch.
 """
 
+import pytest
+
 from src.backend.search.service import RRF_K, _fuse
 
 
@@ -53,3 +55,41 @@ def test_every_fused_score_is_positive():
 def test_results_are_sorted_best_first():
     fused = _fuse([(1.0, ["a", "b", "c"]), (1.0, ["a", "b", "c"])])
     assert [f["score"] for f in fused] == sorted((f["score"] for f in fused), reverse=True)
+
+
+class _FailingSession:
+    """A session whose BM25 statement raises, as it would without the extension."""
+
+    def __init__(self):
+        self.savepoints = 0
+
+    def begin_nested(self):
+        session = self
+
+        class _Savepoint:
+            async def __aenter__(self):
+                session.savepoints += 1
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Savepoint()
+
+    async def execute(self, *a, **k):
+        raise RuntimeError('type "bm25vector" does not exist')
+
+
+@pytest.mark.asyncio
+async def test_a_bm25_failure_is_contained_and_returns_no_hits():
+    """A failed statement aborts the whole PostgreSQL transaction, so without a
+    SAVEPOINT a BM25 failure also killed the semantic tier -- turning graceful
+    degradation into an outage. Verified against a real database: with the
+    savepoint, the semantic tier still answered in the same session."""
+    from src.backend.search.service import _lexical_postgres
+
+    session = _FailingSession()
+    hits = await _lexical_postgres(session, "key", "query", 5)
+
+    assert hits == [], "a BM25 failure must degrade to no lexical hits, not raise"
+    assert session.savepoints == 1, "the query must run inside a SAVEPOINT"
