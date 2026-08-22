@@ -21,6 +21,12 @@ All notable changes to this project will be documented in this file.
   for 麵包 went from 5 results spanning 0.031–0.033, with a decoy second, to 2 results
   where the right one leads by 2×; a query about something never discussed now returns
   nothing at all, which was previously impossible.
+- **The two tiers cover different text, and the README now says so.** Exact-term search
+  indexes your messages only; the semantic tier reads a summary written from the whole
+  transcript, replies included. So a phrase the bot said and you did not is findable by
+  meaning but not by exact term — even though results display the reply. Left as is
+  deliberately: `vchord_bm25` spends ~8 KB of index per distinct term, and bot replies are
+  long and vocabulary-rich, so indexing them is a measurement rather than a one-line change.
 - **The semantic cutoff was recalibrated for summaries** (`SEARCH_SEMANTIC_MAX_DISTANCE`,
   0.6 → 0.75). It had been measured when the tier embedded individual short messages; a
   session summary is a long dense paragraph, so short-query-to-long-document distance sits

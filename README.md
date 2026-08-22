@@ -170,6 +170,18 @@ search than a turn that reads *"you good?"*.
 Each side decides for itself whether something matched before the two are merged, so a
 query about nothing you have discussed returns nothing rather than the least-bad guess.
 
+**The two tiers cover different text**, which is worth knowing before it surprises you:
+
+| | searches |
+|---|---|
+| exact terms | your messages only |
+| meaning | the whole conversation, the bot's replies included |
+
+So a phrase the bot said and you did not is findable by meaning but not by exact term —
+even though results display the reply. Verified on a live session: an eight-message
+conversation indexes its four user messages, and a distinctive word appearing fifteen
+times across the bot's answers matches nothing on the exact-term side.
+
 Search is scoped by channel for group sessions and by (you, channel) for single ones, so
 one person's history is never searchable from another's.
 
