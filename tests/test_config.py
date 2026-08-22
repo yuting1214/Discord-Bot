@@ -194,3 +194,18 @@ def test_overrides_do_not_mutate_the_callers_dictionary_shape():
     data = {"llm": "openrouter"}
     apply_env_overrides(data, {"OPENAI_MODEL": "gpt-x"})
     assert data["llm"] == "openrouter"
+
+
+def test_env_example_documents_every_variable():
+    """.env.example is where a deployer looks for the knobs. A variable that
+    exists and is not listed there is one nobody will find."""
+    import pathlib
+
+    from src.config import DEFAULT_CONFIG_PATH
+
+    env_example = (DEFAULT_CONFIG_PATH.parents[1] / ".env.example").read_text()
+    undocumented = [name for name, _, _ in _ENV_OVERRIDES if name not in env_example]
+    assert not undocumented, f"add these to .env.example: {undocumented}"
+
+    readme = pathlib.Path(DEFAULT_CONFIG_PATH.parents[1] / "README.md").read_text()
+    assert "config/bot.yaml" in readme, "the README must point at the config file"
