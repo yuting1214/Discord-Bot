@@ -16,11 +16,13 @@ set -e
 
 PRELOAD="${SHARED_PRELOAD_LIBRARIES:-vchord_bm25}"
 
-# Only when postgres is what is actually being started -- `docker run ... psql`
-# and the major-upgrade job pass something else, and must not be given
-# postgres' arguments.
-if [ "$1" = "postgres" ]; then
-    set -- "$@" -c "shared_preload_libraries=${PRELOAD}"
+# Anything that is not the server runs directly. wrapper.sh asserts the Railway
+# volume mount path and PGDATA before it starts anything, which is right for the
+# database and wrong for `docker run <image> psql "$DATABASE_URL"` -- that has no
+# volume and no PGDATA, and it is the most convenient client on hand for a
+# database built around extensions the stock psql image knows nothing about.
+if [ "$1" != "postgres" ]; then
+    exec "$@"
 fi
 
-exec /usr/local/bin/wrapper.sh "$@"
+exec /usr/local/bin/wrapper.sh "$@" -c "shared_preload_libraries=${PRELOAD}"
