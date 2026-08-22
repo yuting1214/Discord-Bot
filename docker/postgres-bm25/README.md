@@ -282,6 +282,110 @@ bm25_terms('ขนมปังเปรี้ยว')  -> ขน นม มป �
 bm25_terms('I want 酸種麵包 recipes') -> want recip 酸種 種麵 麵包
 ```
 
+## Recipes
+
+Everything below is SQL against the schema above — nothing to install, and every
+snippet here was run against this image before being written down.
+
+### Hybrid search: BM25 and vectors in one query
+
+The argument for keeping search in your database rather than beside it. Fuse the two
+rankings by **rank**, not by score — cosine similarity lands around 0.3–0.5 while BM25
+scores are unbounded negatives, so any weighted sum of the raw numbers is really just
+one of the two tiers wearing a hat.
+
+```sql
+SET search_path TO public, bm25_catalog;
+
+WITH lexical AS (
+  SELECT id, row_number() OVER (
+           ORDER BY bm25 <&> bm25_catalog.to_bm25query(
+             'messages_bm25_idx', public.to_bm25_query('sourdough starter'))) AS rank
+  FROM messages ORDER BY rank LIMIT 20
+), semantic AS (
+  SELECT id, row_number() OVER (ORDER BY embedding <=> $1) AS rank
+  FROM messages ORDER BY rank LIMIT 20
+)
+SELECT m.content,
+       COALESCE(1.0/(60 + l.rank), 0) + COALESCE(1.0/(60 + s.rank), 0) AS rrf
+FROM lexical l
+FULL JOIN semantic s USING (id)
+JOIN messages m USING (id)
+ORDER BY rrf DESC
+LIMIT 10;
+```
+
+`60` is the standard RRF constant; raise it to flatten the contribution of top ranks.
+Weight a tier by multiplying its term. `FULL JOIN` matters — a document found by only
+one tier must still appear, which is the whole point of running both.
+
+The two fail in different ways, which is why both exist. On real data a content-free
+message (`"you good?"`) scored **exactly 0.0000** for an unrelated query on the BM25
+tier, where embedding search ranked it *above* a genuinely relevant row.
+
+### Faceting
+
+ParadeDB sells faceted search as a feature. In SQL it is an aggregate, and it costs
+one pass rather than one query per facet:
+
+```sql
+WITH hits AS (
+  SELECT locale, created_at,
+         bm25 <&> bm25_catalog.to_bm25query(
+           'messages_bm25_idx', public.to_bm25_query('bread starter')) AS score
+  FROM messages)
+SELECT count(*) FILTER (WHERE score < 0)                        AS matching,
+       count(*) FILTER (WHERE score < 0 AND locale = 'en')      AS english,
+       count(*) FILTER (WHERE score < 0
+                        AND created_at > now() - interval '7 days') AS this_week
+FROM hits;
+```
+
+A score of exactly `0` means no term in common — that is the "no match" test, not a
+threshold you have to tune. `GROUPING SETS` gives you several facet dimensions at once.
+
+### Typo tolerance
+
+An unknown query term matches nothing, which is correct BM25 and unforgiving.
+`bm25_nearest_term` rewrites it to the closest term the corpus actually contains,
+using a trigram index over the vocabulary:
+
+```sql
+SELECT public.bm25_nearest_term('sourdogh');   -- sourdough
+SELECT public.bm25_nearest_term('hydraton');   -- hydrat  (the stem, which is the term)
+SELECT public.bm25_nearest_term('sourdough');  -- sourdough, unchanged
+```
+
+It matches against the **vocabulary**, so it can only ever suggest a word that is in
+your data. Raise the second argument (default `0.4`) to be stricter.
+
+### Phrase, proximity and boolean search
+
+A `bm25vector` is a bag of `{term_id:frequency}` — it has **no positions**, so BM25
+alone cannot answer "these two words, in this order". Add a generated `tsvector`
+alongside it. The two coexist: BM25 ranks, `tsvector` filters.
+
+```sql
+ALTER TABLE messages ADD COLUMN ts tsvector
+  GENERATED ALWAYS AS (to_tsvector('public.bm25_english', content)) STORED;
+CREATE INDEX messages_ts_idx ON messages USING gin (ts);
+```
+
+```sql
+-- exact phrase
+WHERE ts @@ phraseto_tsquery('public.bm25_english', 'sourdough bread')
+-- within N words
+WHERE ts @@ to_tsquery('public.bm25_english', 'starter <3> four')
+-- Google-style: quotes, or, and leading minus
+WHERE ts @@ websearch_to_tsquery('public.bm25_english', '"bread starter" or hydration -rye')
+```
+
+The generated column is free to keep correct and costs one GIN index. It uses the same
+configuration as BM25, so stemming, stopwords and diacritic folding agree between the
+two. **Caveat:** `to_tsvector` does not segment unspaced scripts, so phrase search does
+not work for Chinese, Japanese, Korean, Thai, Khmer, Lao or Burmese. For those, bigram
+adjacency already approximates phrase matching — a two-character query *is* a phrase.
+
 ## Index size scales with vocabulary, not corpus
 
 `vchord_bm25` allocates roughly **8 KB per distinct vocabulary term**, largely
