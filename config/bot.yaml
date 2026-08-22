@@ -53,10 +53,11 @@ search:
   # Reciprocal Rank Fusion constant. Larger flattens the influence of the top
   # ranks; 60 is the value from the original paper.
   rrf_k: 60
-  # Cosine distance past which a document is not a match at all. Measured
-  # against real data: true matches landed at 0.20-0.58, unrelated documents at
-  # 0.61-0.95. Raise for recall, lower for precision.
-  semantic_max_distance: 0.6
+  # Cosine distance past which a session is not a match at all. Measured against
+  # real summaries: a plausible query lands 0.34-0.78 from the session it
+  # belongs to, an unrelated one 0.60-0.99. Those overlap, so this is a
+  # trade rather than a boundary -- see service.py for which way it is made.
+  semantic_max_distance: 0.75
   weights:
     lexical: 1.0
     semantic: 1.0

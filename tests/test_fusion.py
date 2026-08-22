@@ -153,14 +153,16 @@ async def test_a_bm25_score_of_zero_is_not_a_lexical_hit():
 
 @pytest.mark.asyncio
 async def test_a_distant_embedding_is_not_a_semantic_hit():
-    """Measured on live data: true matches landed at 0.20-0.58 cosine distance,
-    unrelated documents at 0.61-0.95, and every document was >= 0.89 away from a
-    query about something the corpus never mentioned."""
+    """Written against the configured cutoff rather than a literal, because the
+    number is corpus- and model-dependent and has already moved once: it was
+    calibrated on per-turn embeddings of short messages, and the tier now embeds
+    long session summaries, which sit further from a short query."""
     from src.backend.search import service
 
+    cutoff = service.SEMANTIC_MAX_DISTANCE
     session = _RowSession(
-        # session id -> cosine distance
-        [("near", 0.40), ("edge", 0.60), ("far", 0.61), ("miss", 0.95)],
+        # session id -> cosine distance, straddling the cutoff exactly
+        [("near", cutoff / 2), ("edge", cutoff), ("far", cutoff + 0.01), ("miss", 0.99)],
         # session id -> the conversation that opened it
         [("near", "conv-near"), ("edge", "conv-edge"), ("far", "conv-far"), ("miss", "conv-miss")],
     )
@@ -180,7 +182,7 @@ async def test_a_document_matching_nothing_never_reaches_fusion():
     )
     semantic = await service._semantic_postgres(
         _RowSession(
-            [("session-match", 0.40), ("session-unrelated", 0.86)],
+            [("session-match", 0.40), ("session-unrelated", 0.98)],
             [("session-match", "match"), ("session-unrelated", "unrelated")],
         ),
         "key", [0.1] * 1536, 20,

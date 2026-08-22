@@ -21,6 +21,11 @@ All notable changes to this project will be documented in this file.
   for 麵包 went from 5 results spanning 0.031–0.033, with a decoy second, to 2 results
   where the right one leads by 2×; a query about something never discussed now returns
   nothing at all, which was previously impossible.
+- **The semantic cutoff was recalibrated for summaries** (`SEARCH_SEMANTIC_MAX_DISTANCE`,
+  0.6 → 0.75). It had been measured when the tier embedded individual short messages; a
+  session summary is a long dense paragraph, so short-query-to-long-document distance sits
+  higher and the old number silently cut 6 of 14 legitimate matches. Found by browser
+  testing that appeared to pass — the hits were coming from the lexical tier.
 - Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`,
   `SEARCH_SEMANTIC_MAX_DISTANCE`.
 

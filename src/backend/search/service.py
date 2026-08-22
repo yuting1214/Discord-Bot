@@ -49,21 +49,34 @@ SEMANTIC_WEIGHT = bot_config.search.weights.semantic
 # Fusing ranks needs more candidates per tier than are finally shown.
 CANDIDATE_MULTIPLIER = 4
 
-# Cosine distance past which a document is not a match at all.
+# Cosine distance past which a session is not a match at all.
 #
 # Both tiers return their top N *whatever* is in the table -- that is what
-# ORDER BY ... LIMIT means -- and RRF gives every returned document a positive
-# score. Without a cutoff, every document in a small table is a "result" for
-# every query, ranked by the tiers' opinions of each other rather than by the
-# query. Measured against the live database, 7 documents:
+# ORDER BY ... LIMIT means -- and RRF gives every returned row a positive score.
+# Without a cutoff, every session in a small table is a "result" for every
+# query, ranked by the tiers' opinions of each other rather than by the query.
 #
-#   true match          0.20 (en) 0.40 (zh) 0.44 (th) 0.55 (id) 0.58 (ko)
-#   unrelated document  0.61 - 0.95
-#   unrelated query     all >= 0.89
+# The number is not a boundary, because there is not one. Measured against real
+# session summaries, 14 plausible queries and 58 mismatched pairs:
 #
-# 0.6 separates those cleanly here. It is a property of the embedding model and
-# the corpus, not a universal constant, so it is a setting -- raise it for
-# recall, lower it for precision.
+#     query -> the session it belongs to       0.34 - 0.78
+#     query -> any other session               0.60 - 0.99
+#
+# They overlap. The trade is made towards recall, for two reasons. A missed
+# semantic hit is invisible forever, while a marginal one enters fusion at a
+# low rank and contributes 1/(60+k) -- it can add a weak row at the bottom, and
+# it almost never outranks something the lexical tier found. And the lexical
+# tier is already the precise half of this design: exact terms, no threshold,
+# zero means no shared term.
+#
+# 0.75 keeps 13 of those 14 true matches and admits 6 of 58 false ones. The
+# previous 0.6 kept 8 of 14 -- it was calibrated when this tier embedded
+# individual short messages, and a session summary is a long dense paragraph, so
+# short-query-to-long-document distance sits systematically higher. The
+# threshold did not move when the thing it measures did.
+#
+# It is a property of the embedding model and the corpus, not a constant. Raise
+# for recall, lower for precision.
 SEMANTIC_MAX_DISTANCE = bot_config.search.semantic_max_distance
 
 

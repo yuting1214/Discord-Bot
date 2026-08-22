@@ -89,9 +89,9 @@ class SearchWeights(BaseModel):
 class SearchSettings(BaseModel):
     top_n: int = 5
     rrf_k: int = 60
-    # Cosine distance past which a document is not a match at all. Measured, not
+    # Cosine distance past which a session is not a match at all. Measured, not
     # chosen -- see src/backend/search/service.py.
-    semantic_max_distance: float = 0.6
+    semantic_max_distance: float = 0.75
     weights: SearchWeights = Field(default_factory=SearchWeights)
 
 
