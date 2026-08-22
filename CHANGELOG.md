@@ -49,6 +49,11 @@ All notable changes to this project will be documented in this file.
   and `SUMMARY_BATCH_SIZE`.
 - `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
   on startup, so an existing deployment upgrades without a migration.
+- **Documents indexed before BM25 existed are backfilled.** They carried a NULL `bm25`,
+  and the lexical tier filters on `bm25 IS NOT NULL` — so an upgrading deployment's entire
+  existing history was invisible to search, silently and permanently. Up to 5,000 rows per
+  restart, bounded so a large table cannot hold the boot transaction open past the
+  healthcheck.
 
 ### Configuration
 - **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
@@ -233,6 +238,11 @@ referral link are unchanged.
   and `SUMMARY_BATCH_SIZE`.
 - `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
   on startup, so an existing deployment upgrades without a migration.
+- **Documents indexed before BM25 existed are backfilled.** They carried a NULL `bm25`,
+  and the lexical tier filters on `bm25 IS NOT NULL` — so an upgrading deployment's entire
+  existing history was invisible to search, silently and permanently. Up to 5,000 rows per
+  restart, bounded so a large table cannot hold the boot transaction open past the
+  healthcheck.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of

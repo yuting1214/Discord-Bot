@@ -156,3 +156,21 @@ def test_each_unspaced_script_is_classified_and_only_it(script):
             assert not any(
                 lo <= codepoint <= hi for lo, hi in _class_ranges(body, other)
             ), f"{name} also matches the {other} range"
+
+
+def test_pre_existing_rows_are_backfilled_for_lexical_search():
+    """A row written before the bm25 column existed keeps a NULL, and the
+    lexical tier filters on `bm25 IS NOT NULL` -- so without a backfill an
+    upgrading deployment's whole search history goes invisible, silently and
+    permanently. Verified against PostgreSQL 18: a v0.2.0-era row was
+    unsearchable before this and matched immediately after.
+    """
+    from src.backend.fastapi.dependencies import database
+
+    assert hasattr(database, "_BM25_BACKFILL"), "the backfill was removed"
+    backfill = database._BM25_BACKFILL
+    # UPDATE OF content is what the trigger listens for; anything else is a
+    # no-op that would leave the rows exactly as invisible as before.
+    assert "SET content = content" in backfill
+    assert "bm25 IS NULL" in backfill, "it must not rewrite rows that are already indexed"
+    assert "LIMIT" in backfill, "unbounded, it would hold the boot transaction open"

@@ -128,6 +128,19 @@ CREATE INDEX IF NOT EXISTS search_documents_bm25_idx
   ON search_documents USING bm25 (bm25 bm25_catalog.bm25_ops);
 """
 
+# Rows that predate the bm25 column keep a NULL, and the lexical tier filters on
+# `bm25 IS NOT NULL` -- so an upgrading deployment's entire existing history
+# would be invisible to search, silently and permanently. The trigger fires on
+# UPDATE OF content, so rewriting the column to itself populates it.
+#
+# Bounded per startup rather than done in one statement: a large table would
+# otherwise hold the boot transaction open long enough to fail the healthcheck.
+# Whatever is left is picked up by the next restart.
+_BM25_BACKFILL = """
+UPDATE search_documents SET content = content
+WHERE id IN (SELECT id FROM search_documents WHERE bm25 IS NULL LIMIT 5000)
+"""
+
 
 async def _setup_bm25(conn) -> None:
     """Install the analyzer and attach BM25 to search_documents.
@@ -156,6 +169,18 @@ async def _setup_bm25(conn) -> None:
         await driver.execute(ANALYZER_SQL.read_text())
         await driver.execute(_BM25_SETUP)
         logger.info("BM25 lexical search enabled")
+
+        backfilled = await driver.execute(_BM25_BACKFILL)
+        # asyncpg returns the command tag, e.g. "UPDATE 42".
+        count = int(backfilled.split()[-1]) if backfilled else 0
+        if count:
+            remaining = await driver.fetchval(
+                "SELECT count(*) FROM search_documents WHERE bm25 IS NULL")
+            logger.info(
+                "Indexed %d pre-existing document(s) for lexical search%s",
+                count,
+                f"; {remaining} left for the next restart" if remaining else "",
+            )
     except Exception:
         logger.warning("Could not attach BM25 to search_documents", exc_info=True)
 
