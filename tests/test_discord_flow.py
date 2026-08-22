@@ -321,7 +321,7 @@ async def test_search_returns_nothing_for_an_unrelated_query(wire, monkeypatch):
     async with wire() as db:
         index_key = (await db.execute(select(SearchDocument))).scalars().first().index_key
         # keyword-only, so an unrelated query scores zero and is filtered out
-        results = await search_service.hybrid_search(db, index_key, "zzz", semantic_ratio=0.0)
+        results = await search_service.hybrid_search(db, index_key, "zzz")
     assert results == []
 
 

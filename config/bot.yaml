@@ -1,0 +1,60 @@
+# The bot's configuration.
+#
+# Precedence: environment variable > this file > built-in default. A Railway
+# variable always wins, so a deployed service can be retuned without a rebuild.
+# Deleting this file is safe -- the defaults below are the built-in ones.
+#
+# Secrets do NOT go here. OPENAI_API_KEY, DISCORD_TOKEN, DATABASE_URL and
+# friends are environment-only; this file is committed to a public repository.
+
+llm:
+  # openai | openrouter. OpenRouter is required for reasoning traces.
+  provider: openai
+  models:
+    openai: gpt-5.6-luna
+    openrouter: openai/gpt-5.6-luna
+  # null means "do not send one". Reasoning models reject any value but their
+  # own default and fail the whole call with a 400, so leave this alone unless
+  # you have switched to a model that accepts it.
+  temperature: null
+  # Ask OpenRouter for reasoning. Ignored on OpenAI's own endpoint, which
+  # spells it differently.
+  reasoning: true
+  timeout: 60
+  max_retries: 2
+
+prompts:
+  # The bot's persona. Change this and redeploy; no Python involved.
+  system: |
+    You are a highly intelligent and versatile assistant. Your role is to help
+    users with a wide variety of questions and tasks. You should provide
+    accurate, concise, and informative responses. If the user asks a question,
+    provide a clear and thorough answer. If the user requests assistance with a
+    task, guide them step-by-step. Always be polite, respectful, and helpful.
+    If you are unsure about something, it's better to admit it rather than
+    provide incorrect information. Encourage users to ask follow-up questions
+    if they need further assistance.
+
+embeddings:
+  model: text-embedding-3-small
+  # Do not change this on a database that already holds vectors. The column is
+  # declared vector(dimensions) and existing rows keep their original width.
+  dimensions: 1536
+
+search:
+  # Results shown per query.
+  top_n: 5
+  # Reciprocal Rank Fusion constant. Larger flattens the influence of the top
+  # ranks; 60 is the value from the original paper.
+  rrf_k: 60
+  # Cosine distance past which a document is not a match at all. Measured
+  # against real data: true matches landed at 0.20-0.58, unrelated documents at
+  # 0.61-0.95. Raise for recall, lower for precision.
+  semantic_max_distance: 0.6
+  weights:
+    lexical: 1.0
+    semantic: 1.0
+
+memory:
+  # Prior turns replayed to the model on each request.
+  window_size: 3

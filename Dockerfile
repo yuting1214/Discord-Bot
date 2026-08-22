@@ -31,6 +31,9 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
+# The bot's configuration. Shipped so the image is self-contained; every
+# value in it is still overridable by an environment variable at deploy time.
+COPY --from=builder /app/config /app/config
 
 ENV ENV_MODE=prod
 ENV HOST=0.0.0.0

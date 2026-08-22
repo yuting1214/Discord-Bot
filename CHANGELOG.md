@@ -33,6 +33,21 @@ All notable changes to this project will be documented in this file.
   broken. It no longer raises either — it is called outside the caller's `try`, so a
   `ValueError` surfaced as the generic failure message.
 
+### Configuration
+- **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
+  temperature, reasoning, embeddings, search tuning and memory window. Changing the
+  bot's character no longer means editing Python — it was previously spread across
+  `llm/config.py`, a prompt template module and a dozen `os.getenv` calls.
+- **Precedence is environment > file > defaults.** Every variable this template already
+  publishes still works and still wins, so a Railway variable retunes a running service
+  without a rebuild. A missing or malformed file falls back to defaults rather than
+  failing to boot, and one bad variable is logged and ignored rather than taking the
+  container down where the dashboard cannot be reached to fix it.
+- **Secrets are environment-only.** No API key or token is readable from the file, and a
+  test asserts the override table never gains one.
+- Removed `SEARCH_SEMANTIC_RATIO`. It was threaded through three functions and read by
+  none of them — a leftover from the linear blend that RRF replaced.
+
 ### Database
 - **Search now runs inside PostgreSQL** (`docker/postgres-search/`): Railway's
   `postgres-ssl` 18.6 plus `vchord_bm25` for BM25 ranking and `icu_ext` for word

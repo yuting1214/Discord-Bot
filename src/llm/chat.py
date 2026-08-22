@@ -22,9 +22,9 @@ from src.llm.config import (
     OPENAI_MODEL,
     OPENROUTER_MODEL,
     REASONING_ENABLED,
+    SYSTEM_PROMPT,
     TEMPERATURE,
 )
-from src.llm.prompt.base_text_templates import TEXT_PROMPT_TEMPLATE_V1
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def _default_model(provider: str) -> str:
 def build_messages(
     user_input: str,
     memory: list[Message] | None,
-    system_prompt: str = TEXT_PROMPT_TEMPLATE_V1,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> list[Message]:
     """Assemble system prompt + prior turns + the new user turn.
 

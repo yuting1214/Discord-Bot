@@ -27,25 +27,24 @@ weak match look identical.
 
 import logging
 import math
-import os
 
 from sqlalchemy import Float, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.backend.fastapi.models import SearchDocument
 from src.backend.search.embeddings import embed
+from src.config import bot_config
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEMANTIC_RATIO = float(os.getenv("SEARCH_SEMANTIC_RATIO", "0.5"))
-DEFAULT_TOP_N = int(os.getenv("SEARCH_TOP_N", "5"))
+DEFAULT_TOP_N = bot_config.search.top_n
 
 # Reciprocal Rank Fusion: score = weight / (RRF_K + rank). K damps the influence
 # of the very top ranks so a single tier cannot dominate; 60 is the value from
 # the original RRF paper and the de facto default.
-RRF_K = int(os.getenv("SEARCH_RRF_K", "60"))
-LEXICAL_WEIGHT = float(os.getenv("SEARCH_LEXICAL_WEIGHT", "1.0"))
-SEMANTIC_WEIGHT = float(os.getenv("SEARCH_SEMANTIC_WEIGHT", "1.0"))
+RRF_K = bot_config.search.rrf_k
+LEXICAL_WEIGHT = bot_config.search.weights.lexical
+SEMANTIC_WEIGHT = bot_config.search.weights.semantic
 
 # Fusing ranks needs more candidates per tier than are finally shown.
 CANDIDATE_MULTIPLIER = 4
@@ -65,7 +64,7 @@ CANDIDATE_MULTIPLIER = 4
 # 0.6 separates those cleanly here. It is a property of the embedding model and
 # the corpus, not a universal constant, so it is a setting -- raise it for
 # recall, lower it for precision.
-SEMANTIC_MAX_DISTANCE = float(os.getenv("SEARCH_SEMANTIC_MAX_DISTANCE", "0.6"))
+SEMANTIC_MAX_DISTANCE = bot_config.search.semantic_max_distance
 
 
 async def index_document(
@@ -183,7 +182,7 @@ async def _semantic_postgres(db: AsyncSession, index_key: str, embedding, limit:
 
 
 async def _search_postgres(
-    db: AsyncSession, index_key: str, query: str, embedding, semantic_ratio: float, top_n: int
+    db: AsyncSession, index_key: str, query: str, embedding, top_n: int
 ) -> list[dict]:
     lexical = await _lexical_postgres(db, index_key, query, top_n)
     semantic = await _semantic_postgres(db, index_key, embedding, top_n)
@@ -191,7 +190,7 @@ async def _search_postgres(
 
 
 async def _search_python(
-    db: AsyncSession, index_key: str, query: str, embedding, semantic_ratio: float, top_n: int
+    db: AsyncSession, index_key: str, query: str, embedding, top_n: int
 ) -> list[dict]:
     """Fallback for SQLite (development and tests), fused the same way.
 
@@ -225,7 +224,6 @@ async def hybrid_search(
     db: AsyncSession,
     index_key: str,
     query: str,
-    semantic_ratio: float = DEFAULT_SEMANTIC_RATIO,
     top_n: int = DEFAULT_TOP_N,
 ) -> list[dict]:
     """Return matching conversations, best first, fusing both tiers.
@@ -238,7 +236,7 @@ async def hybrid_search(
     search = _search_postgres if dialect == "postgresql" else _search_python
     # Fuse more candidates per tier than are finally shown.
     return await search(
-        db, index_key, query, embedding, semantic_ratio, top_n * CANDIDATE_MULTIPLIER
+        db, index_key, query, embedding, top_n * CANDIDATE_MULTIPLIER
     )
 
 

@@ -6,16 +6,17 @@ it, which is the behaviour a chat bot wants.
 """
 
 import logging
-import os
+
+from src.config import bot_config
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL = bot_config.embeddings.model
 
 # text-embedding-3-small. Changing the model means changing this and rebuilding
 # every stored embedding: the column is fixed-width and distances between
 # vectors from different models are meaningless.
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
+EMBEDDING_DIM = bot_config.embeddings.dimensions
 
 
 async def embed(text: str) -> list[float] | None:
