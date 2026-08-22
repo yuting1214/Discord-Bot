@@ -101,10 +101,12 @@ All notable changes to this project will be documented in this file.
   none of them — a leftover from the linear blend that RRF replaced.
 
 ### Database
-- **Search now runs inside PostgreSQL** (`docker/postgres-search/`): Railway's
-  `postgres-ssl` 18.6 plus `vchord_bm25` for BM25 ranking and `icu_ext` for word
-  segmentation, keeping pgvector, pgBackRest and the SSL wrapper. **6.7 MB idle**,
-  against 6.4 MB for the stock image. This replaces Meilisearch, which cost a second
+- **Search now runs inside PostgreSQL.** The database is
+  [PostgreSQL + Hybrid Search](https://railway.com/deploy/postgresql-hybrid-search) — a
+  published template of its own, deployed alongside the bot rather than built from a
+  Dockerfile vendored here. It is Railway's `postgres-ssl` 18.6 plus `vchord_bm25` for
+  BM25 ranking and `icu_ext` for word segmentation, keeping pgvector, pgBackRest and the
+  SSL wrapper, at **6.7 MB idle**. This replaces Meilisearch, which cost a second
   always-on container, a volume and a public domain the bot called over the internet.
 - **The analyzer** (`src/backend/search/analyzer.sql`, applied at startup) tokenizes per
   script within a single document: `to_tsvector` for spaced scripts, ICU for Chinese,

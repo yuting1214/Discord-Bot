@@ -5,11 +5,12 @@
 #   ./scripts/ci.sh fast         lint + SQLite only, no Docker
 #   ./scripts/ci.sh postgres     the PostgreSQL passes only
 #
-# Why this is not a GitHub Action: it needs the postgres-search image, which is
-# built from docker/postgres-search/ in this repository. Building it in a hosted
-# runner on every push costs minutes and caching; building it once on a machine
-# that already has Docker costs nothing after the first time. Run it before you
-# push.
+# Why this is not a GitHub Action: it pulls and runs a real PostgreSQL, and a
+# machine that already has Docker does that in seconds after the first time.
+# Run it before you push.
+#
+# The database is the published image this template deploys, not a local build,
+# so these tests run against exactly what a deployer gets.
 #
 # The point of the PostgreSQL passes is that SQLite takes different branches.
 # Every production defect this project has had escaped through that gap: the
@@ -18,7 +19,8 @@
 set -euo pipefail
 
 MODE="${1:-all}"
-IMAGE="postgres-search-ci"
+# The image behind the PostgreSQL + Hybrid Search template.
+IMAGE="${CI_PG_IMAGE:-ghcr.io/yuting1214/postgres-search:0.4.0}"
 CONTAINER="postgres-search-ci"
 PORT="${CI_PG_PORT:-55499}"
 DSN="postgresql://postgres:ci@localhost:${PORT}/postgres"
@@ -45,14 +47,14 @@ lint_and_sqlite() {
 }
 
 start_postgres() {
-  step "building $IMAGE"
-  # Same Dockerfile the database service deploys from, so a change to it is
-  # covered by this run rather than discovered on Railway.
-  docker build -q -t "$IMAGE" docker/postgres-search >/dev/null
+  step "pulling $IMAGE"
+  # amd64 only, so Apple Silicon runs it under emulation. Correctness is
+  # unaffected; timings and memory readings are not to be trusted there.
+  docker pull -q --platform linux/amd64 "$IMAGE" >/dev/null
 
   step "starting PostgreSQL on :$PORT"
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-  docker run -d --name "$CONTAINER" -p "${PORT}:5432" \
+  docker run -d --name "$CONTAINER" -p "${PORT}:5432" --platform linux/amd64 \
     -e POSTGRES_PASSWORD=ci -e PGDATA=/var/lib/postgresql/data/pgdata \
     "$IMAGE" >/dev/null
 

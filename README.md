@@ -30,12 +30,15 @@ sessions, conversation memory and semantic search — built on
 - **Search that finds things two ways** — exact terms *and* meaning, over your own
   history, inside PostgreSQL. No search cluster to run
 - **Multilingual search** — Chinese, Japanese, Korean, Thai and 30+ more, with real word
-  segmentation rather than whole-sentence tokens
+  segmentation rather than whole-sentence tokens. Both come from
+  [PostgreSQL + Hybrid Search](https://railway.com/deploy/postgresql-hybrid-search),
+  which this template deploys alongside the bot
 - **One YAML for behaviour** — persona, model, provider and search tuning live in
   [`config/bot.yaml`](./config/bot.yaml); no Python to edit
 - **Any OpenAI-compatible provider** — OpenAI and OpenRouter share one client, and models
   are overridable, so the template does not go stale
-- **Two services, not four** — the bot and its database are the whole deployment
+- **Two services, not four** — the bot, and a database from
+  [PostgreSQL + Hybrid Search](https://railway.com/deploy/postgresql-hybrid-search)
 
 ## Commands
 
@@ -60,7 +63,6 @@ sessions, conversation memory and semantic search — built on
 | `src/backend/fastapi/` | REST API, models, and the admin surface behind `/docs` |
 | `src/llm/` | provider clients, completions, memory |
 | `docker/app/` | the bot's image |
-| `docker/postgres-search/` | its database: PostgreSQL with search extensions |
 | `scripts/ci.sh` | lint and tests, against SQLite *and* real PostgreSQL |
 
 ## Quick Start
