@@ -43,8 +43,8 @@ error in memory.
 
 ## Tokenizing without pg_tokenizer
 
-Apply [`analyzer.sql`](./analyzer.sql). It is idempotent, so it can run on every
-start:
+Apply [`analyzer.sql`](../../src/backend/search/analyzer.sql), which ships with the
+application and is applied automatically at startup. It is idempotent:
 
 ```bash
 psql "$DATABASE_URL" -f analyzer.sql

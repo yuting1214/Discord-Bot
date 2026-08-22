@@ -77,3 +77,15 @@ async def test_a_required_column_is_reported_not_guessed(tmp_path, caplog):
     finally:
         Message.__table__._columns.remove(Message.__table__.c.mandatory_field)
     await engine.dispose()
+
+
+def test_the_analyzer_sql_ships_with_the_application():
+    """It must live under src/: the container image copies src/ and nothing else,
+    so a path outside it resolves locally and is missing in production."""
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    assert ANALYZER_SQL.exists(), ANALYZER_SQL
+    assert "src" in ANALYZER_SQL.parts, "must be inside src/ to reach the image"
+    body = ANALYZER_SQL.read_text()
+    for expected in ("bm25_vocabulary", "to_bm25", "to_bm25_query", "bm25_terms"):
+        assert expected in body, expected

@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Search
+- **Two-tier retrieval with Reciprocal Rank Fusion.** Lexical (BM25) and semantic
+  (pgvector) rankings are now fused by rank rather than blended by score. The previous
+  weighted sum was unworkable: cosine similarity lands around 0.3–0.5 while `ts_rank`
+  lands around 0.05, so a nominal 50/50 split behaved as roughly 90% semantic.
+- `search_documents` gains a trigger-populated `bm25` column and index, installed at
+  startup. A database without `vchord_bm25` still runs, with search falling back to the
+  semantic tier — so the app stays deployable against stock PostgreSQL.
+- Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`.
+
 ### Database
 - **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`
   18.6 extended with `vchord_bm25`, keeping pgvector, pgBackRest and the SSL wrapper.
