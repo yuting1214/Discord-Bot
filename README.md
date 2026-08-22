@@ -72,8 +72,13 @@ sessions, conversation memory and semantic search — built on
 │   │   │   ├── dependencies/    # Engine, session, DI
 │   │   │   ├── models/          # SQLAlchemy ORM models
 │   │   │   └── schemas/         # Pydantic schemas
-│   │   ├── search/              # pgvector hybrid search
+│   │   ├── search/              # Hybrid BM25 + vector search
+│   │   │   ├── analyzer.sql     # Multilingual tokenizer (vendored)
+│   │   │   ├── service.py       # Two tiers, fused by rank
+│   │   │   ├── summary.py       # One embedding per session
+│   │   │   └── embeddings.py    # Provider calls
 │   │   └── security/            # Docs authentication
+│   ├── config/                  # Loads config/bot.yaml, env wins
 │   ├── frontend/login/          # Login page templates & static files
 │   └── llm/                     # Provider layer
 │       ├── client.py            # Cached OpenAI / OpenRouter clients
@@ -81,6 +86,8 @@ sessions, conversation memory and semantic search — built on
 │       ├── config.py            # Models and tuning
 │       ├── memory/              # Memory formatting
 │       └── prompt/              # System prompt templates
+├── config/bot.yaml              # Persona, provider, search tuning
+├── docker/postgres-search/      # The database image this bot deploys
 ├── tests/                       # Async test suite
 ├── pyproject.toml               # Dependencies & project config
 ├── Dockerfile                   # Multi-stage build with uv

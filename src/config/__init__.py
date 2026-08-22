@@ -57,6 +57,11 @@ class LLMSettings(BaseModel):
 
 
 class PromptSettings(BaseModel):
+    summary: str = (
+        "Summarise this conversation in two or three sentences. Name the topics "
+        "discussed and any decision reached, in the language the user wrote in. "
+        "Write only the summary, with no preamble."
+    )
     system: str = (
         "You are a highly intelligent and versatile assistant. Your role is to help "
         "users with a wide variety of questions and tasks. You should provide "
@@ -90,6 +95,25 @@ class SearchSettings(BaseModel):
     weights: SearchWeights = Field(default_factory=SearchWeights)
 
 
+class SummarySettings(BaseModel):
+    """One embedding per session instead of one per turn.
+
+    A turn-level embedding is generated on every message -- O(turns) provider
+    calls -- and most turns are not worth one. A session summary is O(sessions),
+    roughly a 10-20x reduction, and is dense and topical rather than
+    conversational.
+    """
+
+    enabled: bool = True
+    # A session left active is never deactivated and so never summarised. The
+    # sweep closes that hole.
+    idle_minutes: int = 60
+    sweep_interval_minutes: int = 15
+    # Sessions summarised per sweep. Bounds the provider spend of a single pass
+    # over a backlog.
+    batch_size: int = 20
+
+
 class MemorySettings(BaseModel):
     # Prior turns replayed to the model. Deliberately the only knob here: a
     # token budget is a better idea and is not implemented, and a setting that
@@ -102,6 +126,7 @@ class BotConfig(BaseModel):
     prompts: PromptSettings = Field(default_factory=PromptSettings)
     embeddings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    summary: SummarySettings = Field(default_factory=SummarySettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
 
 
@@ -132,6 +157,10 @@ _ENV_OVERRIDES: tuple[tuple[str, str, Callable[[str], object]], ...] = (
     ("SEARCH_LEXICAL_WEIGHT", "search.weights.lexical", float),
     ("SEARCH_SEMANTIC_WEIGHT", "search.weights.semantic", float),
     ("SEARCH_SEMANTIC_MAX_DISTANCE", "search.semantic_max_distance", float),
+    ("SUMMARY_ENABLED", "summary.enabled", _boolean),
+    ("SUMMARY_IDLE_MINUTES", "summary.idle_minutes", int),
+    ("SUMMARY_SWEEP_INTERVAL_MINUTES", "summary.sweep_interval_minutes", int),
+    ("SUMMARY_BATCH_SIZE", "summary.batch_size", int),
     ("MEMORY_WINDOW_SIZE", "memory.window_size", int),
 )
 

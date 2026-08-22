@@ -28,7 +28,9 @@ from src.backend.fastapi.api.v1.endpoints import (
 from src.backend.fastapi.core.init_settings import global_settings as settings
 from src.backend.fastapi.crud.command import create_init_command_async
 from src.backend.fastapi.dependencies.database import AsyncSessionLocal, async_engine, init_db
+from src.backend.search.summary import summarize_idle_sessions
 from src.backend.security.authentication import log_credentials_once
+from src.config import bot_config
 
 
 @asynccontextmanager
@@ -58,17 +60,50 @@ async def lifespan(app: FastAPI):
     bot_task = asyncio.create_task(run_discord_bot(client), name="discord-bot")
     bot_task.add_done_callback(_report_bot_exit)
 
+    sweep_task = None
+    if bot_config.summary.enabled:
+        sweep_task = asyncio.create_task(_summary_sweep(), name="summary-sweep")
+
     try:
         yield
     finally:
         if not client.is_closed():
             await client.close()
-        bot_task.cancel()
-        try:
-            await bot_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        for task in (bot_task, sweep_task):
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         await async_engine.dispose()
+
+
+async def _summary_sweep() -> None:
+    """Summarise sessions that went quiet without ever being closed.
+
+    A user who simply stops replying leaves a session active forever, and a
+    session that is never deactivated is never summarised by the other two
+    paths -- so it never becomes semantically searchable.
+
+    Every failure is swallowed and retried next interval: this runs for the life
+    of the process, and an exception here would silently end it.
+    """
+    interval = max(bot_config.summary.sweep_interval_minutes, 1) * 60
+    log = logging.getLogger(__name__)
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    summarised = await summarize_idle_sessions(db)
+            if summarised:
+                log.info("Summary sweep: summarised %d idle session(s)", summarised)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.warning("Summary sweep failed; retrying next interval", exc_info=True)
 
 
 def _report_bot_exit(task: asyncio.Task) -> None:

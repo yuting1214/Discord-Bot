@@ -1,9 +1,18 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.backend.fastapi.crud import SessionService
-from src.backend.fastapi.schemas import SessionCreate, SessionSchema, SessionUpdate
+from src.backend.fastapi.dependencies.database import get_async_db
+from src.backend.fastapi.models import Session
+from src.backend.fastapi.schemas import (
+    SessionCreate,
+    SessionSchema,
+    SessionSummary,
+    SessionUpdate,
+)
+from src.backend.search.summary import summarize_session
 
 router = APIRouter()
 
@@ -41,3 +50,28 @@ async def get_active_single_sessions(user_id: UUID, service: SessionService = De
 @router.get("/sessions/active/group/", response_model=list[SessionSchema])
 async def get_active_group_sessions(channel_discord_id: str, service: SessionService = Depends()):
     return await service.get_active_group(channel_discord_id)
+
+
+@router.post("/sessions/{session_id}/summary", response_model=SessionSummary)
+async def create_session_summary(
+    session_id: UUID,
+    force: bool = False,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Summarise a session now, and embed the summary.
+
+    The other two paths -- closing a session, and the idle sweep -- cover normal
+    operation. This one exists for backfilling sessions that predate
+    summarisation, and for retrying one whose provider call failed.
+
+    Already-summarised sessions are returned unchanged unless ``force``, so this
+    is safe to call in a loop over every session id.
+    """
+    summary = await summarize_session(db, session_id, force=force)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"No session with id {session_id}")
+    await db.commit()
+    return SessionSummary(
+        session_id=session_id, summary=summary, summarized=session.summarized_at is not None
+    )

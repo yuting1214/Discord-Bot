@@ -148,12 +148,21 @@ async def get_session_if_exists(db: AsyncSession, session_id: UUID | str) -> Ses
 
 
 async def manage_session(
-    db: AsyncSession, channel_discord_id: str, user: User, is_group: bool, is_new_session: bool
+    db: AsyncSession,
+    channel_discord_id: str,
+    user: User,
+    is_group: bool,
+    is_new_session: bool,
+    deactivated: list | None = None,
 ) -> Session:
     """Return the session this command should write to.
 
     A new session deactivates whatever was active; an ongoing one is reused, or
     created if nothing is active yet.
+
+    Ids of the sessions it closed are appended to ``deactivated`` when one is
+    given. A closed session is the moment to summarise it, and the caller has to
+    do that after its transaction commits rather than inside it.
     """
     active = await find_active_sessions(db, channel_discord_id, user.id, is_group)
 
@@ -162,6 +171,8 @@ async def manage_session(
 
     for session in active:
         deactivate_session(session)
+        if deactivated is not None:
+            deactivated.append(session.id)
 
     session = Session(
         channel_discord_id=channel_discord_id, is_active=True, is_group=is_group, users=[user]

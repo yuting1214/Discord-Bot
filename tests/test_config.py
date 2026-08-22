@@ -86,6 +86,10 @@ def test_every_published_variable_still_works():
         "SEARCH_LEXICAL_WEIGHT": "2.0",
         "SEARCH_SEMANTIC_WEIGHT": "0.5",
         "SEARCH_SEMANTIC_MAX_DISTANCE": "0.42",
+        "SUMMARY_ENABLED": "false",
+        "SUMMARY_IDLE_MINUTES": "5",
+        "SUMMARY_SWEEP_INTERVAL_MINUTES": "2",
+        "SUMMARY_BATCH_SIZE": "4",
         "MEMORY_WINDOW_SIZE": "8",
     }
     assert set(environ) == {name for name, _, _ in _ENV_OVERRIDES}, "the mapping table drifted"
@@ -105,6 +109,10 @@ def test_every_published_variable_still_works():
     assert config.search.weights.lexical == 2.0
     assert config.search.weights.semantic == 0.5
     assert config.search.semantic_max_distance == 0.42
+    assert config.summary.enabled is False
+    assert config.summary.idle_minutes == 5
+    assert config.summary.sweep_interval_minutes == 2
+    assert config.summary.batch_size == 4
     assert config.memory.window_size == 8
 
 

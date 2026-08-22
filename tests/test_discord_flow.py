@@ -23,6 +23,7 @@ from src.backend.fastapi.models import (
     User,
 )
 from src.backend.search import service as search_service
+from src.backend.search import summary as summary_module
 from src.llm.chat import ChatResult
 
 pytestmark = pytest.mark.asyncio
@@ -52,8 +53,13 @@ def wire(monkeypatch, session_factory):
     async def fake_embed(text):
         return _toy_embedding(text)
 
-    monkeypatch.setattr(run_async, "embed", fake_embed)
     monkeypatch.setattr(search_service, "embed", fake_embed)
+    monkeypatch.setattr(summary_module, "embed", fake_embed)
+    # Summarisation is a fire-and-forget task against its own database session,
+    # which in a test would be the real one rather than the fixture's. Tests
+    # that care about summaries call summarize_session directly.
+    monkeypatch.setattr(run_async, "schedule_summary", lambda session_id: None)
+    monkeypatch.setattr(summary_module, "AsyncSessionLocal", session_factory)
     return session_factory
 
 
@@ -260,7 +266,11 @@ async def test_messages_are_indexed_for_search(wire, monkeypatch):
         docs = (await db.execute(select(SearchDocument))).scalars().all()
     assert len(docs) == 1
     assert docs[0].content == "the capital of france"
-    assert docs[0].embedding, "embedding should be stored"
+    # Deliberately no embedding. Every turn used to be embedded as it arrived --
+    # one provider call per message, on the hot path -- and the semantic tier now
+    # works from one summary per session instead. Lexical search still covers
+    # this message, and costs nothing.
+    assert docs[0].embedding is None
 
 
 async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
@@ -279,8 +289,10 @@ async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
     # otherwise /resume_session is unusable without reading the database.
     assert "session `" in message
     assert "/resume_session" in message
-    # The relevant hit should come first.
-    assert message.index("capital of france") < message.index("sourdough")
+    # The unrelated turn should not be a result at all. It shares no term with
+    # the query, and the semantic tier has nothing to say until the session is
+    # summarised -- so there is nothing to rank it on.
+    assert "sourdough" not in message, message
 
 
 async def test_search_is_scoped_per_user(wire, monkeypatch):

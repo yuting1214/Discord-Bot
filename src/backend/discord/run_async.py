@@ -12,13 +12,13 @@ from src.backend.discord import service
 from src.backend.discord.errors import describe
 from src.backend.discord.utils import extract_uuid
 from src.backend.fastapi.dependencies.database import AsyncSessionLocal
-from src.backend.search.embeddings import embed
 from src.backend.search.service import (
     DEFAULT_TOP_N,
     hybrid_search,
     index_document,
     to_conversation_ids_and_scores,
 )
+from src.backend.search.summary import schedule_summary
 from src.llm.chat import achat
 from src.llm.memory.memory_management import format_memory
 
@@ -90,6 +90,8 @@ async def complete_session_chat(
 ) -> dict:
     try:
         # Transaction 1: record the user's turn and gather the memory window.
+        # Populated inside the transaction, acted on after it commits.
+        closed: list = []
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 user = await service.get_or_create_user(db, user_discord_id, user_name)
@@ -100,7 +102,7 @@ async def complete_session_chat(
                     db, server.id, channel_discord_id, channel_name, user, is_group
                 )
                 session = await service.manage_session(
-                    db, channel_discord_id, user, is_group, is_new_session
+                    db, channel_discord_id, user, is_group, is_new_session, closed
                 )
                 conversation = await service.create_conversation(db, session.id)
                 await service.create_message(
@@ -124,8 +126,11 @@ async def complete_session_chat(
                 index_key = service.search_index_key(user.id, channel.id, is_group)
                 session_id, conversation_id, user_id = session.id, conversation.id, user.id
 
-        # Both network calls run with no database connection held.
-        embedding = await embed(user_input)
+        # The transaction is committed, so a session it closed can be
+        # summarised now without holding a connection while the provider works.
+        for closed_session_id in closed:
+            schedule_summary(closed_session_id)
+
         result = await achat(user_input, memory)
 
         # Transaction 2: record the model's turn and make the exchange searchable.
@@ -151,7 +156,6 @@ async def complete_session_chat(
                     conversation_id=conversation_id,
                     session_id=session_id,
                     content=user_input,
-                    embedding=embedding,
                 )
 
         return {"llm_response": result.text}
@@ -185,6 +189,7 @@ async def resume_session(
             )
         }
 
+    closed: list = []
     try:
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -212,7 +217,13 @@ async def resume_session(
                 ):
                     if active.id != target.id:
                         service.deactivate_session(active)
+                        closed.append(active.id)
                 service.activate_session(target)
+
+        # After the commit: resuming one session closes another, and that one is
+        # now finished and worth summarising.
+        for closed_session_id in closed:
+            schedule_summary(closed_session_id)
 
         return {"message": f"Session - {resume_session_id} has resumed."}
 

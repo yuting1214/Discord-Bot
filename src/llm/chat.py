@@ -110,9 +110,10 @@ def chat(
     model: str | None = None,
     temperature: float | None = TEMPERATURE,
     reasoning: bool = REASONING_ENABLED,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> ChatResult:
     """Synchronous completion. Prefer :func:`achat` on the bot's hot path."""
-    messages = build_messages(user_input, memory)
+    messages = build_messages(user_input, memory, system_prompt)
     kwargs = _request_kwargs(provider, model, temperature, reasoning)
     client = get_client(provider)
     try:
@@ -134,9 +135,10 @@ async def achat(
     model: str | None = None,
     temperature: float | None = TEMPERATURE,
     reasoning: bool = REASONING_ENABLED,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> ChatResult:
     """Asynchronous completion."""
-    messages = build_messages(user_input, memory)
+    messages = build_messages(user_input, memory, system_prompt)
     kwargs = _request_kwargs(provider, model, temperature, reasoning)
     client = get_async_client(provider)
     try:

@@ -31,7 +31,7 @@ import math
 from sqlalchemy import Float, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.backend.fastapi.models import SearchDocument
+from src.backend.fastapi.models import SearchDocument, Session
 from src.backend.search.embeddings import embed
 from src.config import bot_config
 
@@ -78,11 +78,12 @@ async def index_document(
 ) -> SearchDocument:
     """Store a message so it can be searched later.
 
-    ``embedding`` is accepted precomputed so callers can make the provider call
-    outside their transaction rather than holding a connection across it.
+    No embedding is generated here any more. Lexical search covers every
+    message through a database trigger at no cost, and the semantic tier now
+    works from one summary per session rather than one vector per turn -- see
+    search/summary.py. ``embedding`` is still accepted so a caller that wants a
+    turn-level vector can supply one, and so existing rows keep working.
     """
-    if embedding is None:
-        embedding = await embed(content)
     document = SearchDocument(
         index_key=index_key,
         conversation_id=conversation_id,
@@ -157,7 +158,38 @@ async def _lexical_postgres(db: AsyncSession, index_key: str, query: str, limit:
         return []
 
 
+async def _representative_conversations(
+    db: AsyncSession, index_key: str, session_ids: list
+) -> dict:
+    """The conversation that opened each session, within this index.
+
+    The semantic tier ranks *sessions*, but a result row is a conversation --
+    and /resume_session takes a session id anyway. One row per session keeps a
+    long session from flooding the results with twenty near-identical hits.
+    The opening conversation is the one that introduced the topic.
+    """
+    if not session_ids:
+        return {}
+    rows = (await db.execute(
+        select(SearchDocument.session_id, SearchDocument.conversation_id)
+        .where(SearchDocument.session_id.in_(session_ids),
+               SearchDocument.index_key == index_key)
+        .order_by(SearchDocument.session_id, SearchDocument.created_at)
+    )).all()
+    first: dict = {}
+    for session_id, conversation_id in rows:
+        first.setdefault(session_id, conversation_id)
+    return first
+
+
 async def _semantic_postgres(db: AsyncSession, index_key: str, embedding, limit: int) -> list:
+    """Rank session summaries, then map each to a conversation to fuse with.
+
+    Was one vector per turn. A turn-level embedding is generated on every
+    message and most turns do not deserve one -- "you good?" embedded to
+    something plausible and outranked a genuinely relevant turn, because a short
+    aside sits near everything. A summary is dense and topical.
+    """
     if embedding is None:
         return []
     from pgvector.sqlalchemy import Vector
@@ -169,16 +201,22 @@ async def _semantic_postgres(db: AsyncSession, index_key: str, embedding, limit:
     # inherit the wrapped type's comparator methods. The bind parameter is given
     # the Vector type directly so it is sent as a vector literal, not JSON.
     query_vector = literal(embedding, Vector(EMBEDDING_DIM))
-    distance = SearchDocument.embedding.op("<=>", return_type=Float)(query_vector)
+    distance = Session.summary_vector.op("<=>", return_type=Float)(query_vector)
+    # Scoped through search_documents rather than by joining users: index_key is
+    # what separates one user's history from another's, and it is already on
+    # every indexed row.
+    in_scope = select(SearchDocument.session_id).where(SearchDocument.index_key == index_key)
     rows = (await db.execute(
-        select(SearchDocument.conversation_id, distance.label("distance"))
-        .where(SearchDocument.index_key == index_key, SearchDocument.embedding.isnot(None))
+        select(Session.id, distance.label("distance"))
+        .where(Session.summary_vector.isnot(None), Session.id.in_(in_scope))
         .order_by(distance)
         .limit(limit)
     )).all()
     # Filtered after ordering, not in the WHERE clause, so a vector index can
     # still serve the ORDER BY.
-    return [conversation_id for conversation_id, d in rows if d <= SEMANTIC_MAX_DISTANCE]
+    ranked = [session_id for session_id, d in rows if d <= SEMANTIC_MAX_DISTANCE]
+    representative = await _representative_conversations(db, index_key, ranked)
+    return [representative[s] for s in ranked if s in representative]
 
 
 async def _search_postgres(
@@ -204,19 +242,25 @@ async def _search_python(
     lexical = [d for d in documents if _keyword_score(d.content, query) > 0]
     lexical.sort(key=lambda d: _keyword_score(d.content, query), reverse=True)
 
-    semantic: list = []
+    semantic_conversations: list = []
     if embedding is not None:
-        scored = [(d, _cosine_similarity(embedding, d.embedding or [])) for d in documents]
+        in_scope = {d.session_id for d in documents}
+        sessions = (await db.execute(
+            select(Session).where(Session.id.in_(in_scope), Session.summary_vector.isnot(None))
+        )).scalars().all()
+        scored = [(s, _cosine_similarity(embedding, s.summary_vector or [])) for s in sessions]
         # Same cutoff as PostgreSQL, expressed as similarity rather than
         # distance, so both paths agree about what counts as a match.
-        semantic = [
-            d for d, score in sorted(scored, key=lambda x: x[1], reverse=True)
+        ranked = [
+            s.id for s, score in sorted(scored, key=lambda x: x[1], reverse=True)
             if score >= 1.0 - SEMANTIC_MAX_DISTANCE
         ]
+        representative = await _representative_conversations(db, index_key, ranked)
+        semantic_conversations = [representative[s] for s in ranked if s in representative][:top_n]
 
     return _fuse([
         (LEXICAL_WEIGHT, [d.conversation_id for d in lexical[:top_n]]),
-        (SEMANTIC_WEIGHT, [d.conversation_id for d in semantic[:top_n]]),
+        (SEMANTIC_WEIGHT, semantic_conversations),
     ])
 
 

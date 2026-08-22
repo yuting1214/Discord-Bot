@@ -109,10 +109,15 @@ async def test_a_bm25_failure_is_contained_and_returns_no_hits():
 
 
 class _RowSession:
-    """A session whose execute() returns fixed (id, score) rows."""
+    """A session that returns each supplied result set in turn.
 
-    def __init__(self, rows):
-        self.rows = rows
+    The semantic tier issues two queries -- rank the sessions, then map each to
+    the conversation that opened it -- so a fake returning one fixed result for
+    every execute() would feed distances in where conversation ids belong.
+    """
+
+    def __init__(self, *result_sets):
+        self.result_sets = list(result_sets)
 
     def begin_nested(self):
         class _Savepoint:
@@ -125,7 +130,7 @@ class _RowSession:
         return _Savepoint()
 
     async def execute(self, *a, **k):
-        rows = self.rows
+        rows = self.result_sets.pop(0) if self.result_sets else []
 
         class _Result:
             def all(self):
@@ -153,9 +158,14 @@ async def test_a_distant_embedding_is_not_a_semantic_hit():
     query about something the corpus never mentioned."""
     from src.backend.search import service
 
-    session = _RowSession([("near", 0.40), ("edge", 0.60), ("far", 0.61), ("miss", 0.95)])
+    session = _RowSession(
+        # session id -> cosine distance
+        [("near", 0.40), ("edge", 0.60), ("far", 0.61), ("miss", 0.95)],
+        # session id -> the conversation that opened it
+        [("near", "conv-near"), ("edge", "conv-edge"), ("far", "conv-far"), ("miss", "conv-miss")],
+    )
     hits = await service._semantic_postgres(session, "key", [0.1] * 1536, 20)
-    assert hits == ["near", "edge"], hits
+    assert hits == ["conv-near", "conv-edge"], hits
 
 
 @pytest.mark.asyncio
@@ -169,7 +179,11 @@ async def test_a_document_matching_nothing_never_reaches_fusion():
         _RowSession([("match", -1.44), ("unrelated", 0.0)]), "key", "q", 20
     )
     semantic = await service._semantic_postgres(
-        _RowSession([("match", 0.40), ("unrelated", 0.86)]), "key", [0.1] * 1536, 20
+        _RowSession(
+            [("session-match", 0.40), ("session-unrelated", 0.86)],
+            [("session-match", "match"), ("session-unrelated", "unrelated")],
+        ),
+        "key", [0.1] * 1536, 20,
     )
     fused = _fuse([(1.0, lexical), (1.0, semantic)])
 

@@ -24,6 +24,12 @@ llm:
   max_retries: 2
 
 prompts:
+  # Used when a session ends, to produce the one text that gets embedded.
+  summary: |
+    Summarise this conversation in two or three sentences. Name the topics
+    discussed and any decision reached, in the language the user wrote in.
+    Write only the summary, with no preamble.
+
   # The bot's persona. Change this and redeploy; no Python involved.
   system: |
     You are a highly intelligent and versatile assistant. Your role is to help
@@ -54,6 +60,20 @@ search:
   weights:
     lexical: 1.0
     semantic: 1.0
+
+summary:
+  # One embedding per session rather than one per turn. Turning this off does
+  # not restore per-turn embeddings -- it leaves search lexical-only, which is
+  # exact but cannot match a paraphrase.
+  enabled: true
+  # A session with no activity for this long is summarised by the sweep. Without
+  # it, a session nobody ever closes is never summarised and never searchable
+  # semantically.
+  idle_minutes: 60
+  sweep_interval_minutes: 15
+  # Sessions summarised per sweep, which bounds what a single pass over a
+  # backlog can spend at the provider.
+  batch_size: 20
 
 memory:
   # Prior turns replayed to the model on each request.

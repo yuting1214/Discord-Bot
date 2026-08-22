@@ -33,6 +33,23 @@ All notable changes to this project will be documented in this file.
   broken. It no longer raises either — it is called outside the caller's `try`, so a
   `ValueError` surfaced as the generic failure message.
 
+### Search
+- **One embedding per session, not one per turn.** Every user message was embedded as it
+  arrived — a provider call on the hot path of every command — and most turns do not
+  deserve one: `"you good?"` embedded to something plausible and outranked a genuinely
+  relevant turn, because a short aside sits near everything in vector space. The semantic
+  tier now works from an LLM summary written once when a session ends, which is
+  O(sessions) rather than O(turns) and is dense and topical by construction.
+  Lexical search is unaffected and still covers every individual message, because BM25 is
+  populated by a database trigger at no cost.
+- **Three things trigger a summary**, because each leaves a hole the others do not:
+  closing a session, an idle sweep (a session nobody ever closes would otherwise never be
+  summarised), and `POST /api/v1/sessions/{id}/summary` for backfill and retries.
+  Tunable via `SUMMARY_ENABLED`, `SUMMARY_IDLE_MINUTES`, `SUMMARY_SWEEP_INTERVAL_MINUTES`
+  and `SUMMARY_BATCH_SIZE`.
+- `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
+  on startup, so an existing deployment upgrades without a migration.
+
 ### Configuration
 - **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
   temperature, reasoning, embeddings, search tuning and memory window. Changing the
@@ -199,6 +216,23 @@ referral link are unchanged.
   Startup now reconciles missing nullable columns against the models, idempotently.
   A required column is logged as needing a migration rather than added with an
   invented default.
+
+### Search
+- **One embedding per session, not one per turn.** Every user message was embedded as it
+  arrived — a provider call on the hot path of every command — and most turns do not
+  deserve one: `"you good?"` embedded to something plausible and outranked a genuinely
+  relevant turn, because a short aside sits near everything in vector space. The semantic
+  tier now works from an LLM summary written once when a session ends, which is
+  O(sessions) rather than O(turns) and is dense and topical by construction.
+  Lexical search is unaffected and still covers every individual message, because BM25 is
+  populated by a database trigger at no cost.
+- **Three things trigger a summary**, because each leaves a hole the others do not:
+  closing a session, an idle sweep (a session nobody ever closes would otherwise never be
+  summarised), and `POST /api/v1/sessions/{id}/summary` for backfill and retries.
+  Tunable via `SUMMARY_ENABLED`, `SUMMARY_IDLE_MINUTES`, `SUMMARY_SWEEP_INTERVAL_MINUTES`
+  and `SUMMARY_BATCH_SIZE`.
+- `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
+  on startup, so an existing deployment upgrades without a migration.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of
