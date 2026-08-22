@@ -87,10 +87,12 @@ sessions, conversation memory and semantic search — built on
 │       ├── memory/              # Memory formatting
 │       └── prompt/              # System prompt templates
 ├── config/bot.yaml              # Persona, provider, search tuning
-├── docker/postgres-search/      # The database image this bot deploys
+├── docker/
+│   ├── app/Dockerfile           # The bot: multi-stage build with uv
+│   └── postgres-search/         # The database image this bot deploys
 ├── tests/                       # Async test suite
 ├── pyproject.toml               # Dependencies & project config
-├── Dockerfile                   # Multi-stage build with uv
+├── railway.json                 # Points the builder at docker/app/Dockerfile
 └── .env.example                 # Environment variable template
 ```
 
