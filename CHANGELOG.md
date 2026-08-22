@@ -55,6 +55,12 @@ All notable changes to this project will be documented in this file.
   restart, bounded so a large table cannot hold the boot transaction open past the
   healthcheck.
 
+### Security
+- **The summary endpoint requires the `/docs` login.** It calls a paid provider on demand
+  and `?force=true` removes the once-per-session guard, so open to the internet it is an
+  unbounded charge against whoever deployed the template. Every other route under
+  `/api/v1` is a read; this is the only one that spends money.
+
 ### Testing
 - **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set
   `TEST_DATABASE_URL` and every test runs on a private schema of a real database. Every
@@ -256,6 +262,12 @@ referral link are unchanged.
   existing history was invisible to search, silently and permanently. Up to 5,000 rows per
   restart, bounded so a large table cannot hold the boot transaction open past the
   healthcheck.
+
+### Security
+- **The summary endpoint requires the `/docs` login.** It calls a paid provider on demand
+  and `?force=true` removes the once-per-session guard, so open to the internet it is an
+  unbounded charge against whoever deployed the template. Every other route under
+  `/api/v1` is a read; this is the only one that spends money.
 
 ### Testing
 - **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set

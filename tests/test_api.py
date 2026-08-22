@@ -1,33 +1,10 @@
 """HTTP-level checks against the app, without starting the Discord client."""
 
 import httpx
-import pytest_asyncio
 
 from src.backend.fastapi.dependencies.database import get_async_db
 from src.backend.fastapi.main import app
 from src.backend.security import authentication
-
-
-@pytest_asyncio.fixture
-async def client(session_factory):
-    """An in-process HTTP client on the *test's* event loop.
-
-    Not TestClient. That runs the app on an event loop of its own, and asyncpg
-    binds a pooled connection to the loop that created it -- so against
-    PostgreSQL every request failed with the connection unavailable, while
-    SQLite happily served both loops and hid it.
-    """
-
-    async def override():
-        async with session_factory() as db:
-            yield db
-
-    app.dependency_overrides[get_async_db] = override
-    # No lifespan: it would create the real dev database and start the bot.
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 async def test_health_reports_the_database(client):

@@ -3,6 +3,7 @@ import os
 # Settings require an API key at import time; the tests never call a provider.
 os.environ.setdefault("OPENAI_API_KEY", "test-key-not-real")
 
+import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -10,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # Importing the package registers every model on Base.metadata.
 import src.backend.fastapi.models  # noqa: F401
 from src.backend.data.discord_command import command_data
-from src.backend.fastapi.dependencies.database import Base
+from src.backend.fastapi.dependencies.database import Base, get_async_db
+from src.backend.fastapi.main import app
 from src.backend.fastapi.models import LLM, Command
 
 # Set to a scratch PostgreSQL and the whole suite runs there instead of SQLite.
@@ -102,6 +104,28 @@ async def _drop_schema(schema: str) -> None:
     async with admin.begin() as conn:
         await conn.execute(_text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
     await admin.dispose()
+
+
+@pytest_asyncio.fixture
+async def client(session_factory):
+    """An in-process HTTP client on the *test's* event loop.
+
+    Not TestClient. That runs the app on an event loop of its own, and asyncpg
+    binds a pooled connection to the loop that created it -- so against
+    PostgreSQL every request failed with the connection unavailable, while
+    SQLite happily served both loops and hid it.
+    """
+
+    async def override():
+        async with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_async_db] = override
+    # No lifespan: it would create the real dev database and start the bot.
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

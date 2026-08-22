@@ -74,3 +74,33 @@ def test_partial_credentials_are_only_half_set(monkeypatch):
     assert credentials.generated is True
     assert credentials.username == "alice"
     assert credentials.password
+
+
+async def test_the_summary_endpoint_requires_the_docs_login(client):
+    """It calls a paid provider on demand, and `force` removes the
+    once-per-session guard -- so open to the internet it is an unbounded charge
+    against whoever deployed the template. Everything else under /api/v1 is a
+    read; this is the one route that spends money."""
+    response = await client.post(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/summary"
+    )
+    assert response.status_code == 401, response.text
+    assert "/login" in response.json()["detail"]
+
+
+async def test_the_summary_endpoint_is_reachable_once_signed_in(client, monkeypatch):
+    """Gated, not broken."""
+    # Patched where it is *used*: doc.py imported the name at module load, so
+    # rebinding it on the security module would have no effect here.
+    from src.backend.fastapi.api.v1.endpoints import doc
+
+    monkeypatch.setattr(doc, "authenticate_user", lambda u, p: True)
+    login = await client.post(
+        "/login", data={"username": "admin", "password": "pw"}, follow_redirects=False
+    )
+    assert login.status_code == 303, login.text
+
+    response = await client.post(
+        "/api/v1/sessions/00000000-0000-0000-0000-000000000000/summary"
+    )
+    assert response.status_code != 401, response.text

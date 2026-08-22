@@ -13,6 +13,7 @@ from src.backend.fastapi.schemas import (
     SessionUpdate,
 )
 from src.backend.search.summary import summarize_session
+from src.backend.security.authentication import require_admin_session
 
 router = APIRouter()
 
@@ -52,7 +53,11 @@ async def get_active_group_sessions(channel_discord_id: str, service: SessionSer
     return await service.get_active_group(channel_discord_id)
 
 
-@router.post("/sessions/{session_id}/summary", response_model=SessionSummary)
+@router.post(
+    "/sessions/{session_id}/summary",
+    response_model=SessionSummary,
+    dependencies=[Depends(require_admin_session)],
+)
 async def create_session_summary(
     session_id: UUID,
     force: bool = False,
@@ -66,6 +71,10 @@ async def create_session_summary(
 
     Already-summarised sessions are returned unchanged unless ``force``, so this
     is safe to call in a loop over every session id.
+
+    Behind the /docs login, unlike the rest of this API. It calls a paid
+    provider on demand, and ``force`` removes the once-per-session guard -- open
+    to the internet that is an unbounded charge against whoever deployed this.
     """
     summary = await summarize_session(db, session_id, force=force)
     session = await db.get(Session, session_id)
