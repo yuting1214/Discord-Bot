@@ -55,6 +55,19 @@ All notable changes to this project will be documented in this file.
   restart, bounded so a large table cannot hold the boot transaction open past the
   healthcheck.
 
+### Testing
+- **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set
+  `TEST_DATABASE_URL` and every test runs on a private schema of a real database. Every
+  production defect this project has had lived in a branch SQLite never executes, and
+  turning this on immediately found four more: `CREATE EXTENSION` resolving against the
+  caller's `search_path`, `bm25_vocabulary` doing the same, 26-dimension stub vectors that
+  only a JSON column would accept, and `TestClient` running the app on its own event loop
+  where asyncpg's pooled connections do not work.
+- `scripts/check_upgrade.py` builds a v0.1.0-era database and boots the current release
+  against it, asserting the columns are added, the data survives and pre-BM25 rows become
+  searchable.
+- HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
+
 ### Configuration
 - **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
   temperature, reasoning, embeddings, search tuning and memory window. Changing the
@@ -243,6 +256,19 @@ referral link are unchanged.
   existing history was invisible to search, silently and permanently. Up to 5,000 rows per
   restart, bounded so a large table cannot hold the boot transaction open past the
   healthcheck.
+
+### Testing
+- **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set
+  `TEST_DATABASE_URL` and every test runs on a private schema of a real database. Every
+  production defect this project has had lived in a branch SQLite never executes, and
+  turning this on immediately found four more: `CREATE EXTENSION` resolving against the
+  caller's `search_path`, `bm25_vocabulary` doing the same, 26-dimension stub vectors that
+  only a JSON column would accept, and `TestClient` running the app on its own event loop
+  where asyncpg's pooled connections do not work.
+- `scripts/check_upgrade.py` builds a v0.1.0-era database and boots the current release
+  against it, asserting the columns are added, the data survives and pre-BM25 rows become
+  searchable.
+- HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of

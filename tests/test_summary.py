@@ -19,6 +19,7 @@ from src.backend.fastapi.models import SearchDocument, Session
 from src.backend.search import service as search_service
 from src.backend.search import summary as summary_module
 from src.llm.chat import ChatResult
+from tests.conftest import toy_embedding
 
 CTX = {
     "server_discord_id": "server-1",
@@ -31,12 +32,7 @@ CTX = {
 }
 
 
-def _toy_embedding(text: str) -> list[float]:
-    vector = [0.0] * 26
-    for character in text.lower():
-        if "a" <= character <= "z":
-            vector[ord(character) - 97] += 1.0
-    return vector or [0.0] * 26
+
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +41,7 @@ def wire(monkeypatch, session_factory):
     monkeypatch.setattr(summary_module, "AsyncSessionLocal", session_factory)
 
     async def fake_embed(text):
-        return _toy_embedding(text)
+        return toy_embedding(text)
 
     monkeypatch.setattr(search_service, "embed", fake_embed)
     monkeypatch.setattr(summary_module, "embed", fake_embed)
@@ -81,7 +77,7 @@ async def test_no_turn_is_embedded_any_more(wire, monkeypatch):
 
     async def counting_embed(text):
         calls.append(text)
-        return _toy_embedding(text)
+        return toy_embedding(text)
 
     monkeypatch.setattr(search_service, "embed", counting_embed)
     monkeypatch.setattr(summary_module, "embed", counting_embed)
@@ -118,7 +114,7 @@ async def test_one_summary_per_session_not_one_per_turn(wire, monkeypatch):
 
     async def counting_embed(text):
         embeds.append(text)
-        return _toy_embedding(text)
+        return toy_embedding(text)
 
     monkeypatch.setattr(summary_module, "embed", counting_embed)
     monkeypatch.setattr(summary_module, "achat", await stub_chat("A summary."))

@@ -42,7 +42,8 @@
 --
 -- Idempotent: safe to run on every start.
 
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+-- vchord_bm25 forces its own schema, bm25_catalog, and rejects WITH SCHEMA.
 CREATE EXTENSION IF NOT EXISTS vchord_bm25 CASCADE;
 
 -- Optional. Each is skipped rather than fatal, so this script also applies to a
@@ -52,7 +53,10 @@ DECLARE ext text;
 BEGIN
     FOREACH ext IN ARRAY ARRAY['icu_ext', 'unaccent', 'pg_trgm'] LOOP
         IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = ext) THEN
-            EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I', ext);
+            -- WITH SCHEMA public, not wherever the caller's search_path
+            -- happens to point: every reference below is public-qualified, so
+            -- an extension that lands anywhere else is invisible to them.
+            EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I WITH SCHEMA public', ext);
         ELSE
             RAISE NOTICE 'bm25: % not available, degrading', ext;
         END IF;
@@ -110,7 +114,11 @@ END $do$;
 -- ---------------------------------------------------------------------------
 -- Vocabulary
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS bm25_vocabulary (
+-- Schema-qualified like everything else here. Unqualified, it lands in
+-- whatever schema happens to be first on the caller's search_path, while every
+-- function below looks for it in public -- so the two disagree the moment
+-- anyone runs with a different path.
+CREATE TABLE IF NOT EXISTS public.bm25_vocabulary (
     id   serial PRIMARY KEY,
     term text UNIQUE NOT NULL
 );

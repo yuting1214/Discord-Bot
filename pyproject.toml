@@ -38,6 +38,9 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "sqlite_only: exercises the SQLite fallback and is meaningless on PostgreSQL",
+]
 
 [tool.ruff]
 target-version = "py312"

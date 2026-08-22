@@ -159,6 +159,9 @@ dmypy.json
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
+# ...but the rules above are a virtualenv's internals, and this project has its
+# own top-level scripts/ that is not one of them.
+!/scripts/
 pyvenv.cfg
 .venv
 pip-selfcheck.json
@@ -172,3 +175,7 @@ pip-selfcheck.json
 # The repository is public, so drafts and internal reasoning stay out of it.
 # To ship a specific document, add an exception, e.g.  !docs/architecture.md
 docs/
+
+# Local agent configuration: skills, settings. Personal tooling, not the
+# project's.
+.claude/

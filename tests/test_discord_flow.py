@@ -25,6 +25,7 @@ from src.backend.fastapi.models import (
 from src.backend.search import service as search_service
 from src.backend.search import summary as summary_module
 from src.llm.chat import ChatResult
+from tests.conftest import toy_embedding
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,7 +52,7 @@ def wire(monkeypatch, session_factory):
 
     # No provider call in tests: embeddings are deterministic stand-ins.
     async def fake_embed(text):
-        return _toy_embedding(text)
+        return toy_embedding(text)
 
     monkeypatch.setattr(search_service, "embed", fake_embed)
     monkeypatch.setattr(summary_module, "embed", fake_embed)
@@ -63,13 +64,7 @@ def wire(monkeypatch, session_factory):
     return session_factory
 
 
-def _toy_embedding(text: str) -> list[float]:
-    """A tiny bag-of-characters vector: similar strings point similar ways."""
-    vector = [0.0] * 26
-    for character in text.lower():
-        if "a" <= character <= "z":
-            vector[ord(character) - 97] += 1.0
-    return vector or [0.0] * 26
+
 
 
 async def count(factory, model) -> int:
