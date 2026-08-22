@@ -1,6 +1,6 @@
 [project]
 name = "discord-llm-bot"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Discord LLM chatbot with FastAPI, PostgreSQL and semantic search"
 requires-python = ">=3.12"
 dependencies = [

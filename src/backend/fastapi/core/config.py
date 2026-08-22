@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Application settings
     APP_NAME: str = "Discord LLM Bot"
-    APP_VERSION: str = "0.2.0"
+    APP_VERSION: str = "0.3.0"
 
     # Username and Password for login
     USER_NAME: str = ""
