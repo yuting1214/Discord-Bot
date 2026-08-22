@@ -34,46 +34,23 @@ All notable changes to this project will be documented in this file.
   `ValueError` surfaced as the generic failure message.
 
 ### Database
-- **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`
-  18.6 extended with `vchord_bm25`, keeping pgvector, pgBackRest and the SSL wrapper.
-- **6.7 MB idle**, against 6.4 MB for the stock image. `pg_tokenizer` was evaluated and rejected: it
-  costs ~331 MB resident *and* ranks CJK worse, because its `unicode_segmentation`
-  emits character unigrams — on a query for 麵包 it ranked two decoys above the correct
-  document.
-- **Multilingual analysis in SQL** (`analyzer.sql`), at no measurable memory cost.
-- **Vocabulary cardinality is now controlled.** `vchord_bm25` spends ~8 KB of index per
-  distinct term regardless of how many documents contain it, so ids, hashes and URLs —
-  the bulk of chat data — dominated index size. `analyzer.sql` now uses its own text
-  search configuration with those token types unmapped. On 20,000 chat-shaped rows:
-  **641 MB → 736 KB** of index, 81,714 → 15 vocabulary terms. Numbers are no longer
-  terms of their own; the README documents how to put them back.
-- **Thai, Lao, Khmer and Burmese now segment at all.** They were falling through to
-  `to_tsvector`, which returns an entire phrase as a single token that only matches an
-  identical phrase. Also newly recognised: CJK extensions A and B, compatibility
-  ideographs, hangul compatibility jamo, and halfwidth katakana including its voiced
-  sound marks.
-- **`tsearch_data` is writable by `postgres`.** It ships `root:root`, which made custom
-  stopword and synonym dictionaries impossible to install at runtime.
-- **Real word segmentation for Chinese, Thai, Khmer, Lao and Burmese** via `icu_ext`
-  (273 kB, 0.2 MB idle). Japanese and Korean stay on bigrams deliberately — ICU shreds
-  katakana compounds and leaves Korean particles attached to their nouns. Han is decided
-  per document: kana anywhere means the kanji is Japanese. On the 13-locale corpus this
-  cut the vocabulary from 377 terms to 204 and the index from 3,104 kB to 1,720 kB.
-- **Single-character queries in unspaced scripts now match.** `빵` is a real word but
-  almost never a term, because the document containing it was segmented into `빵에`.
-- **Diacritics are folded at index time** (`unaccent`), so `banh mi` finds `bánh mì` —
-  Vietnamese is routinely typed without them and previously returned nothing.
-- **Typo tolerance** over the vocabulary via `pg_trgm` (`bm25_nearest_term`).
-- **Highlighting that works for the languages this image is for** (`bm25_headline`).
-  `ts_headline` re-parses the document with the configuration's parser, which does not
-  segment Chinese, Japanese, Korean, Thai, Khmer, Lao or Burmese — so a search that
-  ranked those documents correctly returned them with nothing marked.
-- **Extensions are created on first boot**, configurable through `BM25_EXTENSIONS`, and
-  the preload list is extensible through `SHARED_PRELOAD_LIBRARIES` — previously
-  impossible, because a command-line `-c` overrides `postgresql.conf`.
-- **`bench/`** — 13 locales of relevance judgements as data, with a runner that reports
-  per-locale pass/fail against any deployment. Run against the previous analyzer it
-  reports 0/14 groups passing.
+- **Search now runs inside PostgreSQL** (`docker/postgres-search/`): Railway's
+  `postgres-ssl` 18.6 plus `vchord_bm25` for BM25 ranking and `icu_ext` for word
+  segmentation, keeping pgvector, pgBackRest and the SSL wrapper. **6.7 MB idle**,
+  against 6.4 MB for the stock image. This replaces Meilisearch, which cost a second
+  always-on container, a volume and a public domain the bot called over the internet.
+- **The analyzer** (`src/backend/search/analyzer.sql`, applied at startup) tokenizes per
+  script within a single document: `to_tsvector` for spaced scripts, ICU for Chinese,
+  Thai, Khmer, Lao and Burmese, bigrams for Japanese and Korean. It also folds
+  diacritics, keeps high-cardinality tokens such as ids and hashes out of the vocabulary
+  — `vchord_bm25` spends ~8 KB of index per distinct term, so on 20,000 chat-shaped rows
+  that is the difference between a 641 MB index and a 736 KB one — expands
+  single-character CJK queries, and highlights results in scripts `ts_headline` cannot
+  mark.
+- The database image, its 13-locale verification corpus and the benchmarks behind these
+  numbers now live in **[postgres-search](https://github.com/yuting1214/postgres-search)**.
+  `analyzer.sql` is vendored here because the application container ships `src/` and
+  nothing else.
 
 ## [0.2.0] - 2026-08-21
 

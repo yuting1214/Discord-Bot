@@ -156,19 +156,3 @@ def test_each_unspaced_script_is_classified_and_only_it(script):
             assert not any(
                 lo <= codepoint <= hi for lo, hi in _class_ranges(body, other)
             ), f"{name} also matches the {other} range"
-
-
-def test_the_database_image_ships_the_same_analyzer():
-    """The image and the application need the same file for opposite reasons --
-    the image's build context is its own directory and cannot reach into src/,
-    and the application image copies src/ and nothing else. Neither can be a
-    symlink to the other, so the copy is checked instead: a drift here means the
-    standalone database segments text differently from the bot that queries it.
-    """
-    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
-
-    shipped = ANALYZER_SQL.parents[3] / "docker" / "postgres-bm25" / "analyzer.sql"
-    assert shipped.exists(), shipped
-    assert shipped.read_bytes() == ANALYZER_SQL.read_bytes(), (
-        f"cp {ANALYZER_SQL} {shipped}"
-    )

@@ -1,5 +1,14 @@
 -- BM25 text analysis without pg_tokenizer.
 --
+-- VENDORED. The canonical copy, its 13-locale verification corpus and the
+-- benchmarks behind every number quoted below live in:
+--
+--     https://github.com/yuting1214/postgres-search
+--
+-- It is duplicated here because the application container ships src/ and
+-- nothing else, and the bot applies this file at startup (see init_db). Fix
+-- bugs there and copy the file across; do not diverge.
+--
 -- A bm25vector is a sparse {term_id:frequency} map. Nothing requires those ids
 -- to come from pg_tokenizer, which costs ~331MB of resident memory because it
 -- preloads tokenizer models. This produces the same vectors from Postgres' own
