@@ -7,6 +7,8 @@ message it tries to store.
 """
 
 
+import re
+
 import pytest
 from sqlalchemy import Column, String, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -89,3 +91,42 @@ def test_the_analyzer_sql_ships_with_the_application():
     body = ANALYZER_SQL.read_text()
     for expected in ("bm25_vocabulary", "to_bm25", "to_bm25_query", "bm25_terms"):
         assert expected in body, expected
+
+
+def test_high_cardinality_token_types_stay_out_of_the_vocabulary():
+    """vchord_bm25 spends ~8KB of index per distinct term regardless of how many
+    documents contain it, so ids, hashes and URLs are the dominant cost on chat
+    data. Measured on 20,000 chat-shaped rows: 641MB of index and 81,714 terms
+    with these mappings present, 736KB and 15 terms without them.
+    """
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    body = ANALYZER_SQL.read_text()
+    mapping_drop = body.split("DROP MAPPING IF EXISTS FOR", 1)
+    assert len(mapping_drop) == 2, "the token-type mappings are no longer dropped"
+    dropped = mapping_drop[1].split(";", 1)[0]
+    for token_type in ("numword", "uint", "int", "url", "url_path", "file", "version"):
+        assert token_type in dropped, token_type
+
+
+def test_the_script_class_covers_every_unspaced_script():
+    """Scripts to_tsvector cannot segment must reach the bigram path. Anything
+    missing here does not fail loudly -- the whole phrase becomes one token that
+    only ever matches an identical phrase.
+    """
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    body = ANALYZER_SQL.read_text()
+    line = next(ln for ln in body.splitlines() if ln.strip().startswith("SELECT '["))
+    samples = {
+        "CJK ext A": "㐀", "CJK": "一", "CJK compatibility": "豈",
+        "hiragana": "あ", "katakana": "ア", "halfwidth katakana": "ﾊ",
+        "halfwidth voiced mark": "ﾟ", "hangul": "가", "hangul jamo": "㄰",
+        "Thai": "ก", "Lao": "ກ", "Khmer": "ក", "Myanmar": "က",
+    }
+    ranges = [
+        (ord(a), ord(b))
+        for a, _, b in re.findall(r"(.)(-)(.)", line[line.index("[") + 1 : line.rindex("]")])
+    ]
+    for name, char in samples.items():
+        assert any(lo <= ord(char) <= hi for lo, hi in ranges), name

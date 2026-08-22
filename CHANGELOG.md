@@ -23,6 +23,19 @@ All notable changes to this project will be documented in this file.
   document.
 - **CJK via character bigrams** (`analyzer.sql`), the strategy Lucene's CJKAnalyzer
   uses, generated in SQL at no measurable cost.
+- **Vocabulary cardinality is now controlled.** `vchord_bm25` spends ~8 KB of index per
+  distinct term regardless of how many documents contain it, so ids, hashes and URLs —
+  the bulk of chat data — dominated index size. `analyzer.sql` now uses its own text
+  search configuration with those token types unmapped. On 20,000 chat-shaped rows:
+  **641 MB → 736 KB** of index, 81,714 → 15 vocabulary terms. Numbers are no longer
+  terms of their own; the README documents how to put them back.
+- **Thai, Lao, Khmer and Myanmar now segment.** They were falling through to
+  `to_tsvector`, which returns an entire phrase as a single token that only matches an
+  identical phrase. Also added to the bigram path: CJK extensions A and B, compatibility
+  ideographs, hangul compatibility jamo, and halfwidth katakana including its voiced
+  sound marks.
+- **`tsearch_data` is writable by `postgres`.** It ships `root:root`, which made custom
+  stopword and synonym dictionaries impossible to install at runtime.
 
 ## [0.2.0] - 2026-08-21
 

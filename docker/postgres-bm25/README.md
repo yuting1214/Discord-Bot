@@ -74,7 +74,8 @@ functions:
 
 | function | volatility | use |
 |---|---|---|
-| `bm25_terms(text)` | IMMUTABLE | Latin via `to_tsvector`, CJK via bigrams |
+| `bm25_script_class()` | IMMUTABLE | the character ranges routed to bigrams |
+| `bm25_terms(text)` | IMMUTABLE | spaced scripts via `to_tsvector`, unspaced via bigrams |
 | `to_bm25(text)` | VOLATILE | **write path** — extends the vocabulary |
 | `to_bm25_query(text)` | STABLE | **read path** — lookup only, never writes |
 
@@ -110,11 +111,23 @@ ORDER BY bm25 <&> bm25_catalog.to_bm25query('messages_bm25_idx',
 LIMIT 5;
 ```
 
-### CJK: bigrams, and why they beat pg_tokenizer here
+### Unspaced scripts: bigrams, and why they beat pg_tokenizer here
 
-Postgres' text search does not segment Chinese, Japanese or Korean, so CJK runs
-are indexed as overlapping character **bigrams** — the strategy Lucene's
-CJKAnalyzer uses. `analyzer.sql` does this automatically.
+Postgres' text search cannot segment scripts that do not put spaces between words —
+it returns the whole phrase as one token. Those runs are indexed as overlapping
+character **bigrams** instead, the strategy Lucene's CJKAnalyzer uses.
+`analyzer.sql` does this automatically for:
+
+| | ranges |
+|---|---|
+| Chinese | CJK unified, extension A, extension B, compatibility ideographs |
+| Japanese | hiragana, katakana, katakana phonetic ext, **halfwidth katakana** |
+| Korean | hangul syllables, hangul compatibility jamo |
+| Thai, Lao, Khmer, Myanmar | full blocks |
+
+Halfwidth katakana runs through U+FF9F rather than U+FF9D: the voiced sound marks are
+separate characters, and stopping short of them splits `ﾊﾟﾝ` into two single-character
+runs instead of the bigrams `ﾊﾟ ﾟﾝ`.
 
 That is not a compromise. `pg_tokenizer`'s `unicode_segmentation` emits character
 **unigrams**, and individual CJK characters are far too common to discriminate.
@@ -151,10 +164,10 @@ difference between a database service that is cheap to leave running and one tha
 is not. If your workload is high-QPS search where 6 ms matters more than 330 MB,
 install pg_tokenizer and configure a Lindera model for CJK.
 
-### What Postgres alone does with CJK
+### What Postgres alone does with these scripts
 
 For reference, this is why the bigram step exists — `to_tsvector` on its own
-collapses a whole CJK phrase into one unusable token:
+collapses a whole unspaced phrase into one unusable token:
 
 ```
 to_tsvector('english', 'sourdough bread starter')
@@ -162,34 +175,72 @@ to_tsvector('english', 'sourdough bread starter')
 
 to_tsvector('english', '我想要一個關於酸種麵包的建議')
   -> '我想要一個關於酸種麵包的建議':1                  ✗ one token
+
+to_tsvector('english', 'ขนมปังเปรี้ยว')
+  -> 'ขนมปังเปรี้ยว':1                              ✗ one token
 ```
 
-`bm25_terms` splits CJK runs out before calling `to_tsvector` and emits bigrams
-for them, so both scripts are handled in one pass.
+`bm25_terms` splits those runs out before calling `to_tsvector` and emits bigrams
+for them, so both kinds of script are handled in one pass:
 
-## Known issue: index size scales with vocabulary, not corpus
+```
+bm25_terms('ขนมปังเปรี้ยว')  -> ขน นม มป ปั ัง งเ เป ปร รี ี้ ้ย ยว
+bm25_terms('I want 酸種麵包 recipes') -> want recip 酸種 種麵 麵包
+```
+
+## Index size scales with vocabulary, not corpus
 
 `vchord_bm25` allocates roughly **8 KB per distinct vocabulary term**, largely
-independent of how many documents contain it. This is measurable in this repo's own
-benchmark: 20,000 documents produced 20,079 distinct terms and a **161 MB** index —
-8.0 KB per term.
+independent of how many documents contain it. **Vocabulary cardinality, not corpus
+size, is what drives index size** — the single most important property to understand
+about this design.
 
-That benchmark's corpus appended a unique number to every document, which looked like
-an artifact at the time. It is not an artifact; it is the pathological case, and it is
-a realistic one. Chat and log data are full of high-cardinality tokens — usernames,
-URLs, IDs, hashes — and every one becomes a permanent vocabulary entry.
+That makes chat and log data the pathological case, because it is full of tokens that
+appear in exactly one document: snowflake ids, hashes, URLs, version strings. Each one
+buys a permanent 8 KB posting list to match a single row.
 
-| corpus shape | distinct terms | index | container |
+`analyzer.sql` handles this by unmapping those token types from its text search
+configuration. Postgres' parser already labels them (`uint`, `numword`, `url`,
+`url_path`, `file`, `version`, …), so they are dropped by type rather than by
+pattern-matching the output. Measured on 20,000 chat-shaped rows — usernames, Discord
+channel URLs, snowflake ids, an MD5 per row:
+
+| | vocabulary | BM25 index | database |
 |---|---|---|---|
-| ordinary prose | ~5,000 | 1.3 MB | 88 MB |
-| one unique token per document | 20,000 | **157 MB** | **416 MB** |
+| `english` (stock configuration) | 81,714 terms | **641 MB** | 671 MB |
+| `bm25_english` (this image) | 15 terms | **736 kB** | 15 MB |
 
-For comparison, `pg_search` indexed the same high-cardinality corpus in 3.2 MB.
+That is 7.8 KB per term on the left, confirming the scaling law independently.
 
-**Mitigation before this is used at scale:** apply a document-frequency floor in
-`bm25_terms` so tokens appearing in fewer than N documents are not admitted to the
-vocabulary, and/or strip URL, numeric and hash-shaped tokens. Not yet implemented —
-tracked for v0.3.0.
+**The trade-off is explicit:** a bare number is no longer a searchable term, so
+`SELECT … to_bm25_query('1084503117000007')` matches nothing. Numbers still appear in
+stored content and still match by their surrounding words. If part numbers or versions
+are the point of your corpus, put them back:
+
+```sql
+ALTER TEXT SEARCH CONFIGURATION public.bm25_english
+  ADD MAPPING FOR uint, int WITH simple;
+```
+
+`host` and `email` are deliberately **kept** — both are low cardinality in practice and
+people search for them.
+
+**Residual:** plain-word tokens that occur once (an unusual surname, a typo) still cost
+8 KB each. A document-frequency floor would need a second pass over the corpus, so it is
+a maintenance job rather than something the write path can do. If the vocabulary grows
+past a few hundred thousand rows, prune it and rebuild:
+
+```sql
+-- terms that appear in fewer than 2 documents, after the fact
+DELETE FROM bm25_vocabulary v WHERE NOT EXISTS (
+  SELECT 1 FROM messages m WHERE m.content ILIKE '%' || v.term || '%' LIMIT 2);
+UPDATE messages SET content = content;   -- retrigger; then REINDEX
+```
+
+**Upgrading an existing database:** re-running `analyzer.sql` replaces the functions but
+not the vectors already stored. Rows written under the old configuration keep their old
+terms until rewritten — `UPDATE <table> SET content = content;` then `REINDEX INDEX
+<table>_bm25_idx`.
 
 ## Build
 

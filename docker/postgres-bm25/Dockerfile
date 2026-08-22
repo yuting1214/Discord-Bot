@@ -67,7 +67,11 @@ COPY --from=fetch /packages/*.deb /tmp/
 RUN set -eux; \
     dpkg -i /tmp/vchord-bm25.deb; \
     rm -f /tmp/*.deb; \
-    test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/vchord_bm25.so"
+    test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/vchord_bm25.so"; \
+    # tsearch_data ships root:root 755, and CREATE TEXT SEARCH DICTIONARY reads
+    # its stopword and synonym files from there by name -- so a deployer cannot
+    # install a custom dictionary at all without this. Costs nothing.
+    chown postgres:postgres "/usr/share/postgresql/${PG_MAJOR}/tsearch_data"
 
 # vchord_bm25 must be preloaded or CREATE EXTENSION fails outright.
 # Baked into CMD rather than left to the deployer: Railway's entrypoint is
