@@ -85,6 +85,17 @@ All notable changes to this project will be documented in this file.
   searchable.
 - HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
 
+### Fixed
+- **Token usage is recorded for the first time.** `record_llm_usage` required a matching
+  row in `llms`, nothing ever seeded that table, and the miss was logged at debug — so
+  every completion's token counts were discarded silently and `llm_usages` stayed empty in
+  production for the life of the template. The `llms` row is now created from what the
+  provider actually answered with, so a model shipping tomorrow is recorded tomorrow.
+  Verified against a live database: two completions, `llm_usages` 0 → 2, with real counts.
+- Removed `src/backend/data/llm_models.py`. It listed Llama 3, GPT-3.5 and Claude 3, was
+  imported by nothing, and a fixed catalogue is what made the previous revision of this
+  template stay pinned to `gpt-3.5-turbo-0125`.
+
 ### Configuration
 - **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
   temperature, reasoning, embeddings, search tuning and memory window. Changing the
@@ -294,6 +305,17 @@ referral link are unchanged.
   against it, asserting the columns are added, the data survives and pre-BM25 rows become
   searchable.
 - HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
+
+### Fixed
+- **Token usage is recorded for the first time.** `record_llm_usage` required a matching
+  row in `llms`, nothing ever seeded that table, and the miss was logged at debug — so
+  every completion's token counts were discarded silently and `llm_usages` stayed empty in
+  production for the life of the template. The `llms` row is now created from what the
+  provider actually answered with, so a model shipping tomorrow is recorded tomorrow.
+  Verified against a live database: two completions, `llm_usages` 0 → 2, with real counts.
+- Removed `src/backend/data/llm_models.py`. It listed Llama 3, GPT-3.5 and Claude 3, was
+  imported by nothing, and a fixed catalogue is what made the previous revision of this
+  template stay pinned to `gpt-3.5-turbo-0125`.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of

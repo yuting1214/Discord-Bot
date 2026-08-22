@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from src.backend.discord import run_async, service
 from src.backend.fastapi.models import (
+    LLM,
     Channel,
     CommandLog,
     Conversation,
@@ -467,3 +468,63 @@ async def test_truncated_results_say_how_many_matched(wire, monkeypatch):
     # Six match, fewer are shown, and the header must admit it.
     assert " of " in message, message.split("\n")[0]
     assert message.startswith("**"), message[:40]
+
+
+async def test_token_usage_is_actually_recorded(wire, monkeypatch):
+    """It never was. record_llm_usage required a row in `llms`, nothing seeded
+    that table, and the miss was logged at debug -- so every completion's token
+    counts were discarded silently and llm_usages stayed empty in production for
+    the life of the template."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="hello", is_group=False, is_new_session=True
+    )
+
+    async with wire() as db:
+        usages = (await db.execute(select(LLMUsage))).scalars().all()
+        llms = (await db.execute(select(LLM))).scalars().all()
+
+    assert len(usages) == 1, "a completion must leave a usage row"
+    assert usages[0].input_tokens > 0 and usages[0].output_tokens > 0
+    assert len(llms) == 1, "the model row is created on first sight"
+    assert usages[0].llm_id == llms[0].id, "the usage points at the model that answered"
+
+
+async def test_an_unknown_model_does_not_need_seeding(wire, monkeypatch):
+    """The point of the fix: a provider shipping a new model must not silently
+    stop usage being recorded, which is what a fixed catalogue guarantees."""
+    async def brand_new_model(*a, **k):
+        return ChatResult(
+            text="hi", model="vendor/model-that-did-not-exist-yesterday",
+            input_tokens=11, output_tokens=22,
+        )
+
+    monkeypatch.setattr(run_async, "achat", brand_new_model)
+    await run_async.complete_session_chat(
+        **CTX, user_input="hello", is_group=False, is_new_session=True
+    )
+
+    async with wire() as db:
+        # By endpoint, not .first(): the fixture seeds one model already, and
+        # the whole point is that an *unseeded* one is recorded too.
+        llm = (await db.execute(select(LLM).where(
+            LLM.api_endpoint == "vendor/model-that-did-not-exist-yesterday"))).scalars().first()
+        usage = (await db.execute(select(LLMUsage))).scalars().first()
+
+    assert llm is not None, "a model nobody seeded must still be recorded"
+    assert llm.llm_vendor == "vendor", "OpenRouter answers with vendor/model"
+    assert usage.input_tokens == 11 and usage.output_tokens == 22
+
+
+async def test_the_same_model_is_not_recreated_per_turn(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    for _ in range(3):
+        await run_async.complete_session_chat(
+            **CTX, user_input="hello", is_group=False, is_new_session=False
+        )
+
+    async with wire() as db:
+        matching = (await db.execute(select(LLM).where(
+            LLM.api_endpoint == "openai/gpt-5.6-luna"))).scalars().all()
+        assert len(matching) == 1, "one row per model, not one per turn"
+        assert len((await db.execute(select(LLMUsage))).scalars().all()) == 3
