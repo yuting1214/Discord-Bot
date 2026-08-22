@@ -36,6 +36,22 @@ All notable changes to this project will be documented in this file.
   sound marks.
 - **`tsearch_data` is writable by `postgres`.** It ships `root:root`, which made custom
   stopword and synonym dictionaries impossible to install at runtime.
+- **Real word segmentation for Chinese, Thai, Khmer, Lao and Burmese** via `icu_ext`
+  (273 kB, 0.2 MB idle). Japanese and Korean stay on bigrams deliberately — ICU shreds
+  katakana compounds and leaves Korean particles attached to their nouns. Han is decided
+  per document: kana anywhere means the kanji is Japanese. On the 13-locale corpus this
+  cut the vocabulary from 377 terms to 204 and the index from 3,104 kB to 1,720 kB.
+- **Single-character queries in unspaced scripts now match.** `빵` is a real word but
+  almost never a term, because the document containing it was segmented into `빵에`.
+- **Diacritics are folded at index time** (`unaccent`), so `banh mi` finds `bánh mì` —
+  Vietnamese is routinely typed without them and previously returned nothing.
+- **Typo tolerance** over the vocabulary via `pg_trgm` (`bm25_nearest_term`).
+- **Extensions are created on first boot**, configurable through `BM25_EXTENSIONS`, and
+  the preload list is extensible through `SHARED_PRELOAD_LIBRARIES` — previously
+  impossible, because a command-line `-c` overrides `postgresql.conf`.
+- **`bench/`** — 13 locales of relevance judgements as data, with a runner that reports
+  per-locale pass/fail against any deployment. Run against the previous analyzer it
+  reports 0/14 groups passing.
 
 ## [0.2.0] - 2026-08-21
 
