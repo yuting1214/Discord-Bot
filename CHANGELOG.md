@@ -24,6 +24,15 @@ All notable changes to this project will be documented in this file.
 - Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`,
   `SEARCH_SEMANTIC_MAX_DISTANCE`.
 
+- **A valid session ID for a missing session no longer reports as malformed.**
+  `extract_uuid` matched UUID **4** only, so the nil UUID — and any v1/v5/v7 ID — was
+  rejected on shape before the lookup ran, and the user was told to go back to `/search`
+  and re-copy the ID they already had. It now accepts any UUID version, which also
+  matters because PostgreSQL 18 ships `uuidv7()` and this template's own database image
+  documents it: the day session IDs come from the database, every resume would have
+  broken. It no longer raises either — it is called outside the caller's `try`, so a
+  `ValueError` surfaced as the generic failure message.
+
 ### Database
 - **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`
   18.6 extended with `vchord_bm25`, keeping pgvector, pgBackRest and the SSL wrapper.

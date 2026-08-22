@@ -172,11 +172,15 @@ async def resume_session(
     user_input: str,
     is_group: bool,
 ) -> dict:
+    # Shape and existence are different failures and get different messages. A
+    # well-formed id for a session that is gone used to be reported as
+    # malformed, which sent the user back to /search to copy the same id again.
     resume_session_id = extract_uuid(user_input)
     if not resume_session_id:
         return {
             "message": (
-                "That does not look like a session ID. Run `/search` (or "
+                "That is not a session ID — it should look like "
+                "`52e9d6ce-7fda-462c-9983-71fa6bedf6c4`. Run `/search` (or "
                 "`/search_group`) and copy the `session_id` from a result."
             )
         }
@@ -196,8 +200,10 @@ async def resume_session(
                 if target is None:
                     return {
                         "message": (
-                            f"No session found with ID `{resume_session_id}`. "
-                            "Run `/search` to list sessions you can resume."
+                            f"No session with ID `{resume_session_id}`. The ID is "
+                            "well-formed, so it is either from another channel or "
+                            "the session no longer exists. Run `/search` to list "
+                            "sessions you can resume."
                         )
                     }
 

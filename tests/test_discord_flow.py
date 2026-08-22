@@ -202,9 +202,17 @@ async def test_resume_rejects_bad_input(wire):
 
     missing = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
     gone = (await run_async.resume_session(**CTX, user_input=missing, is_group=False))["message"]
-    assert "No session found" in gone
+    assert "No session with ID" in gone
     assert missing in gone, "echo the id so the user can see what was tried"
     assert "/search" in gone
+
+    # Browser testing found these two returning byte-identical text, because a
+    # UUID4-only pattern rejected the nil UUID before any lookup happened. A
+    # user pasting a valid id for a deleted session was told it was malformed.
+    nil = "00000000-0000-0000-0000-000000000000"
+    unknown = (await run_async.resume_session(**CTX, user_input=nil, is_group=False))["message"]
+    assert unknown != bad, "a well-formed unknown id is not the same failure as garbage"
+    assert nil in unknown, "it reached the lookup rather than being rejected on shape"
 
 
 async def test_repeat_user_does_not_duplicate_records(wire, monkeypatch):
