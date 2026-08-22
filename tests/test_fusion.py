@@ -46,7 +46,9 @@ def test_one_empty_tier_still_returns_the_other():
 
 
 def test_every_fused_score_is_positive():
-    """hybrid_search filters on score > 0, so RRF must never emit zero."""
+    """Every document a tier returns gets a positive score, whether or not it
+    matched. That is why the tiers must decide what counts as a match before
+    fusion -- see test_a_document_matching_nothing_never_reaches_fusion."""
     fused = _fuse([(1.0, list("abcdefghij")), (1.0, list("jihgfedcba"))])
     assert all(f["score"] > 0 for f in fused)
     assert len(fused) == 10
@@ -93,3 +95,96 @@ async def test_a_bm25_failure_is_contained_and_returns_no_hits():
 
     assert hits == [], "a BM25 failure must degrade to no lexical hits, not raise"
     assert session.savepoints == 1, "the query must run inside a SAVEPOINT"
+
+
+# ---------------------------------------------------------------------------
+# Match cutoffs
+# ---------------------------------------------------------------------------
+# Found in production, not by these tests: on a 7-document table every query
+# returned 5 results with scores inside a 0.002 band, and one document sat at
+# rank 2 for every query including ones sharing no character with it. Both tiers
+# were returning their whole ORDER BY ... LIMIT window and RRF was scoring all
+# of it. The SQLite fallback had always filtered; only the PostgreSQL path did
+# not, so no test covered the paths that shipped.
+
+
+class _RowSession:
+    """A session whose execute() returns fixed (id, score) rows."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def begin_nested(self):
+        class _Savepoint:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Savepoint()
+
+    async def execute(self, *a, **k):
+        rows = self.rows
+
+        class _Result:
+            def all(self):
+                return rows
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_a_bm25_score_of_zero_is_not_a_lexical_hit():
+    """`<&>` is negative and more negative is more relevant, so exactly 0.0 means
+    the document and the query have no term in common. Measured on live data: for
+    every query, exactly one document scored non-zero and the rest were 0.0000 --
+    including a decoy containing both characters of the query but not the word."""
+    from src.backend.search.service import _lexical_postgres
+
+    session = _RowSession([("match", -1.4386), ("decoy", -0.0), ("other", 0.0)])
+    assert await _lexical_postgres(session, "key", "麵包", 20) == ["match"]
+
+
+@pytest.mark.asyncio
+async def test_a_distant_embedding_is_not_a_semantic_hit():
+    """Measured on live data: true matches landed at 0.20-0.58 cosine distance,
+    unrelated documents at 0.61-0.95, and every document was >= 0.89 away from a
+    query about something the corpus never mentioned."""
+    from src.backend.search import service
+
+    session = _RowSession([("near", 0.40), ("edge", 0.60), ("far", 0.61), ("miss", 0.95)])
+    hits = await service._semantic_postgres(session, "key", [0.1] * 1536, 20)
+    assert hits == ["near", "edge"], hits
+
+
+@pytest.mark.asyncio
+async def test_a_document_matching_nothing_never_reaches_fusion():
+    """The regression, end to end at the fusion boundary: a document that neither
+    tier admits must be absent, not merely last. Ranked last still reads to a user
+    as a result, and RRF gives it a score inside a rounding error of the real one."""
+    from src.backend.search import service
+
+    lexical = await service._lexical_postgres(
+        _RowSession([("match", -1.44), ("unrelated", 0.0)]), "key", "q", 20
+    )
+    semantic = await service._semantic_postgres(
+        _RowSession([("match", 0.40), ("unrelated", 0.86)]), "key", [0.1] * 1536, 20
+    )
+    fused = _fuse([(1.0, lexical), (1.0, semantic)])
+
+    assert ids(fused) == ["match"]
+    assert "unrelated" not in ids(fused)
+
+
+def test_both_backends_agree_on_what_counts_as_a_semantic_match():
+    """SQLite expresses the cutoff as similarity and PostgreSQL as distance. They
+    have to mean the same thing, or development and production disagree about
+    which documents exist."""
+    from src.backend.search.service import SEMANTIC_MAX_DISTANCE
+
+    similarity_cutoff = 1.0 - SEMANTIC_MAX_DISTANCE
+    for distance in (0.0, 0.3, SEMANTIC_MAX_DISTANCE, 0.8, 1.0):
+        postgres_keeps = distance <= SEMANTIC_MAX_DISTANCE
+        sqlite_keeps = (1.0 - distance) >= similarity_cutoff
+        assert postgres_keeps == sqlite_keeps, distance

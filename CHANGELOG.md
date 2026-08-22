@@ -12,7 +12,17 @@ All notable changes to this project will be documented in this file.
 - `search_documents` gains a trigger-populated `bm25` column and index, installed at
   startup. A database without `vchord_bm25` still runs, with search falling back to the
   semantic tier — so the app stays deployable against stock PostgreSQL.
-- Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`.
+- **Each tier now decides what counts as a match before fusion.** RRF scores a document
+  by where it *placed*, not by whether it matched, and `ORDER BY … LIMIT n` always
+  returns n documents — so on a small table every document was a result for every query,
+  ranked by the tiers' opinions of each other rather than by the query. A BM25 score of
+  exactly 0 means no shared term and is no longer a hit; the vector tier is bounded by
+  `SEARCH_SEMANTIC_MAX_DISTANCE` (default 0.6, measured). On the live database a query
+  for 麵包 went from 5 results spanning 0.031–0.033, with a decoy second, to 2 results
+  where the right one leads by 2×; a query about something never discussed now returns
+  nothing at all, which was previously impossible.
+- Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`,
+  `SEARCH_SEMANTIC_MAX_DISTANCE`.
 
 ### Database
 - **New PostgreSQL image with BM25** (`docker/postgres-bm25/`): Railway's `postgres-ssl`

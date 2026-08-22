@@ -13,6 +13,16 @@ They are combined with Reciprocal Rank Fusion rather than a weighted sum of
 scores. The previous linear blend was unworkable: cosine similarity lands around
 0.3-0.5 while ts_rank lands around 0.05, so a nominal 50/50 split behaved as
 roughly 90% semantic. RRF combines *ranks*, which have no scale to mismatch.
+
+RRF has one sharp edge, and it has bitten this file once: it scores a document
+by where it *placed*, not by whether it matched. `ORDER BY ... LIMIT n` always
+returns n documents if the table holds n, and RRF then gives every one of them a
+positive score -- so on a small table every document was a result for every
+query, ordered by the tiers' opinions of each other rather than by the query.
+Each tier therefore decides what counts as a match before fusion: exactly 0.0
+from BM25 means no shared term, and SEMANTIC_MAX_DISTANCE bounds the vector
+tier. Filtering after fusion cannot recover this -- by then a non-match and a
+weak match look identical.
 """
 
 import logging
@@ -39,6 +49,23 @@ SEMANTIC_WEIGHT = float(os.getenv("SEARCH_SEMANTIC_WEIGHT", "1.0"))
 
 # Fusing ranks needs more candidates per tier than are finally shown.
 CANDIDATE_MULTIPLIER = 4
+
+# Cosine distance past which a document is not a match at all.
+#
+# Both tiers return their top N *whatever* is in the table -- that is what
+# ORDER BY ... LIMIT means -- and RRF gives every returned document a positive
+# score. Without a cutoff, every document in a small table is a "result" for
+# every query, ranked by the tiers' opinions of each other rather than by the
+# query. Measured against the live database, 7 documents:
+#
+#   true match          0.20 (en) 0.40 (zh) 0.44 (th) 0.55 (id) 0.58 (ko)
+#   unrelated document  0.61 - 0.95
+#   unrelated query     all >= 0.89
+#
+# 0.6 separates those cleanly here. It is a property of the embedding model and
+# the corpus, not a universal constant, so it is a setting -- raise it for
+# recall, lower it for precision.
+SEMANTIC_MAX_DISTANCE = float(os.getenv("SEARCH_SEMANTIC_MAX_DISTANCE", "0.6"))
 
 
 async def index_document(
@@ -104,8 +131,9 @@ def _fuse(rankings: list[tuple[float, list]]) -> list[dict]:
 
 
 async def _lexical_postgres(db: AsyncSession, index_key: str, query: str, limit: int) -> list:
-    """BM25 ranking. Returns [] when the analyzer is absent, so a database
-    without analyzer.sql applied degrades to semantic-only rather than erroring."""
+    """BM25 ranking, matches only. Returns [] when the analyzer is absent, so a
+    database without analyzer.sql applied degrades to semantic-only rather than
+    erroring."""
     # Inside a SAVEPOINT: if BM25 is unavailable the statement fails, and a
     # failed statement aborts the whole transaction -- which would then take the
     # semantic tier down with it, turning graceful degradation into an outage.
@@ -113,15 +141,18 @@ async def _lexical_postgres(db: AsyncSession, index_key: str, query: str, limit:
         async with db.begin_nested():
             rows = (await db.execute(
                 text(
-                    "SELECT conversation_id FROM search_documents "
+                    "SELECT conversation_id, bm25 <&> bm25_catalog.to_bm25query("
+                    "  'search_documents_bm25_idx', public.to_bm25_query(:q)) AS score "
+                    "FROM search_documents "
                     "WHERE index_key = :key AND bm25 IS NOT NULL "
-                    "ORDER BY bm25 <&> bm25_catalog.to_bm25query("
-                    "  'search_documents_bm25_idx', public.to_bm25_query(:q)) "
-                    "LIMIT :n"
+                    "ORDER BY score LIMIT :n"
                 ),
                 {"key": index_key, "q": query, "n": limit},
-            )).scalars().all()
-        return list(rows)
+            )).all()
+        # `<&>` is negative and more negative is more relevant, so exactly 0.0
+        # means the document and the query share no term at all. Filtered here
+        # rather than in the WHERE clause so the index still drives ORDER BY.
+        return [conversation_id for conversation_id, score in rows if score < 0]
     except Exception:
         logger.warning("BM25 ranking unavailable; using semantic only", exc_info=True)
         return []
@@ -141,12 +172,14 @@ async def _semantic_postgres(db: AsyncSession, index_key: str, embedding, limit:
     query_vector = literal(embedding, Vector(EMBEDDING_DIM))
     distance = SearchDocument.embedding.op("<=>", return_type=Float)(query_vector)
     rows = (await db.execute(
-        select(SearchDocument.conversation_id)
+        select(SearchDocument.conversation_id, distance.label("distance"))
         .where(SearchDocument.index_key == index_key, SearchDocument.embedding.isnot(None))
         .order_by(distance)
         .limit(limit)
-    )).scalars().all()
-    return list(rows)
+    )).all()
+    # Filtered after ordering, not in the WHERE clause, so a vector index can
+    # still serve the ORDER BY.
+    return [conversation_id for conversation_id, d in rows if d <= SEMANTIC_MAX_DISTANCE]
 
 
 async def _search_postgres(
@@ -175,7 +208,12 @@ async def _search_python(
     semantic: list = []
     if embedding is not None:
         scored = [(d, _cosine_similarity(embedding, d.embedding or [])) for d in documents]
-        semantic = [d for d, score in sorted(scored, key=lambda x: x[1], reverse=True) if score > 0]
+        # Same cutoff as PostgreSQL, expressed as similarity rather than
+        # distance, so both paths agree about what counts as a match.
+        semantic = [
+            d for d, score in sorted(scored, key=lambda x: x[1], reverse=True)
+            if score >= 1.0 - SEMANTIC_MAX_DISTANCE
+        ]
 
     return _fuse([
         (LEXICAL_WEIGHT, [d.conversation_id for d in lexical[:top_n]]),
@@ -199,8 +237,9 @@ async def hybrid_search(
     dialect = db.bind.dialect.name if db.bind is not None else "postgresql"
     search = _search_postgres if dialect == "postgresql" else _search_python
     # Fuse more candidates per tier than are finally shown.
-    results = await search(db, index_key, query, embedding, semantic_ratio, top_n * CANDIDATE_MULTIPLIER)
-    return [r for r in results if r["score"] > 0]
+    return await search(
+        db, index_key, query, embedding, semantic_ratio, top_n * CANDIDATE_MULTIPLIER
+    )
 
 
 def to_conversation_ids_and_scores(results: list[dict]) -> tuple[list, list[float]]:

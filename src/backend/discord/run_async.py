@@ -32,6 +32,13 @@ def _render_search_results(results: list[dict], is_group: bool, shown: int) -> s
     a wall of braces before /resume_session could be used at all.
     """
     total = len(results)
+    if not total:
+        # Reachable since both tiers gained a match cutoff: a query sharing no
+        # term and no meaning with anything stored now returns nothing at all,
+        # where it used to return whatever happened to be closest. Offering
+        # /resume_session here would point at a list that does not exist.
+        return "**No results.** Nothing stored in this channel matches that yet."
+
     results = results[:shown]
     header = f"**{len(results)} of {total} result(s)**" if total > len(results) else f"**{total} result(s)**"
     lines = [header]
