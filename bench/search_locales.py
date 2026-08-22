@@ -161,6 +161,38 @@ async def check_tokenization(conn: asyncpg.Connection, corpus: dict) -> Result:
     return result
 
 
+async def check_highlighting(conn: asyncpg.Connection, corpus: dict) -> Result:
+    """What a search box shows. A document that ranked correctly and comes back
+    with nothing marked reads as broken, and that is exactly what plain
+    ts_headline does to every script this analyzer exists for."""
+    result = Result(locale="highlighting")
+    for case in corpus["highlighting"]:
+        marked = await conn.fetchval(
+            "SELECT public.bm25_headline($1, $2, '<<', '>>')", case["text"], case["query"]
+        )
+        found = {
+            marked[i + 2 : marked.index(">>", i)]
+            for i in range(len(marked))
+            if marked.startswith("<<", i)
+        }
+        for expected in case["expect_marked"]:
+            if expected in found:
+                result.passed.append(f"{case['query']!r} marks {expected!r}")
+            else:
+                result.failed.append(
+                    f"{case['query']!r} on {case['text']!r} marked {sorted(found)},"
+                    f" expected {expected!r} ({case['why']})"
+                )
+        if not case["expect_marked"]:
+            if found:
+                result.failed.append(
+                    f"{case['query']!r} marked {sorted(found)} in a decoy ({case['why']})"
+                )
+            else:
+                result.passed.append(f"{case['query']!r} marks nothing in the decoy")
+    return result
+
+
 async def run(dsn: str, reset: bool = False) -> int:
     corpus = json.loads(CORPUS.read_text())
     conn = await asyncpg.connect(dsn, server_settings={"search_path": "public,bm25_catalog"})
@@ -182,6 +214,7 @@ async def run(dsn: str, reset: bool = False) -> int:
 
         results = await check_locales(conn, corpus)
         results.append(await check_tokenization(conn, corpus))
+        results.append(await check_highlighting(conn, corpus))
 
         vocabulary = await conn.fetchval("SELECT count(*) FROM public.bm25_vocabulary")
         index_size = await conn.fetchval(f"SELECT pg_size_pretty(pg_relation_size('{INDEX}'))")

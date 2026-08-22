@@ -45,6 +45,10 @@ All notable changes to this project will be documented in this file.
 - **Diacritics are folded at index time** (`unaccent`), so `banh mi` finds `bánh mì` —
   Vietnamese is routinely typed without them and previously returned nothing.
 - **Typo tolerance** over the vocabulary via `pg_trgm` (`bm25_nearest_term`).
+- **Highlighting that works for the languages this image is for** (`bm25_headline`).
+  `ts_headline` re-parses the document with the configuration's parser, which does not
+  segment Chinese, Japanese, Korean, Thai, Khmer, Lao or Burmese — so a search that
+  ranked those documents correctly returned them with nothing marked.
 - **Extensions are created on first boot**, configurable through `BM25_EXTENSIONS`, and
   the preload list is extensible through `SHARED_PRELOAD_LIBRARIES` — previously
   impossible, because a command-line `-c` overrides `postgresql.conf`.

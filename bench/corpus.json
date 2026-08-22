@@ -21,7 +21,12 @@
     "",
     "tokenization[] term-level judgements, for anything ranking cannot express:",
     "              scripts mixed inside one document, and the tokens the",
-    "              analyzer must refuse because each one costs ~8KB of index."
+    "              analyzer must refuse because each one costs ~8KB of index.",
+    "",
+    "highlighting[]  ts_headline cannot mark unspaced scripts -- it re-parses the",
+    "                document with the configuration's parser, which does not",
+    "                segment them. A search that ranked a document correctly and",
+    "                returns it with nothing marked reads as a broken search box."
   ],
   "locales": [
     {
@@ -340,6 +345,88 @@
         "today"
       ],
       "why": "high-cardinality tokens cost ~8KB of index each and match one row"
+    }
+  ],
+  "highlighting": [
+    {
+      "text": "looking for sourdough bread starter hydration advice",
+      "query": "sourdough hydration",
+      "expect_marked": [
+        "sourdough",
+        "hydration"
+      ],
+      "why": "ts_headline handles spaced scripts"
+    },
+    {
+      "text": "le café crème est servi à la boulangerie",
+      "query": "cafe",
+      "expect_marked": [
+        "café"
+      ],
+      "why": "the undecorated query must still mark the decorated word"
+    },
+    {
+      "text": "tôi muốn tìm công thức bánh mì chua",
+      "query": "banh mi",
+      "expect_marked": [
+        "bánh",
+        "mì"
+      ],
+      "why": "Vietnamese typed without diacritics"
+    },
+    {
+      "text": "酸種麵包的做法其實很簡單",
+      "query": "麵包",
+      "expect_marked": [
+        "麵包"
+      ],
+      "why": "Chinese: ICU term located in the text"
+    },
+    {
+      "text": "這家麵店的包子真的很好吃",
+      "query": "麵包",
+      "expect_marked": [],
+      "why": "a decoy must come back with nothing marked"
+    },
+    {
+      "text": "東京都で美味しいサワードウブレッドを探しています",
+      "query": "サワードウ",
+      "expect_marked": [
+        "サワード"
+      ],
+      "why": "adjacent bigram spans are spliced into one"
+    },
+    {
+      "text": "사워도우 빵에 대한 추천을 원해요",
+      "query": "빵",
+      "expect_marked": [
+        "빵"
+      ],
+      "why": "Korean single character inside a glued form"
+    },
+    {
+      "text": "ผมอยากได้คำแนะนำเกี่ยวกับขนมปังเปรี้ยว",
+      "query": "ขนมปัง",
+      "expect_marked": [
+        "ขนมปัง"
+      ],
+      "why": "Thai word boundaries come from ICU"
+    },
+    {
+      "text": "ကျွန်တော်ပေါင်မုန့်လိုချင်ပါတယ်",
+      "query": "ပေါင်မုန့်",
+      "expect_marked": [
+        "ပေါင်မုန့်"
+      ],
+      "why": "Burmese"
+    },
+    {
+      "text": "хочу научиться печь хлеб на закваске",
+      "query": "хлеб",
+      "expect_marked": [
+        "хлеб"
+      ],
+      "why": "Cyrillic goes through ts_headline unchanged"
     }
   ]
 }

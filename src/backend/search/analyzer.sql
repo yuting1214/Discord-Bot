@@ -360,6 +360,56 @@ BEGIN
     END IF;
 END $do$;
 
+-- ---------------------------------------------------------------------------
+-- Highlighting
+-- ---------------------------------------------------------------------------
+-- ts_headline alone cannot highlight the scripts this analyzer exists for. It
+-- re-parses the document with the configuration's parser, which does not
+-- segment Chinese, Japanese, Korean, Thai, Khmer, Lao or Burmese -- so a search
+-- that ranked those documents correctly returns them with nothing marked, which
+-- reads as a broken search box.
+--
+-- So: ts_headline for the spaced part, and the analyzer's own terms located in
+-- the text for the rest. The second pass runs over the first one's output.
+CREATE OR REPLACE FUNCTION public.bm25_headline(
+    content   text,
+    query     text,
+    start_sel text DEFAULT '<b>',
+    stop_sel  text DEFAULT '</b>',
+    cfg       regconfig DEFAULT 'public.bm25_english'
+)
+RETURNS text LANGUAGE sql STABLE PARALLEL SAFE AS $$
+    WITH marks AS (
+        -- Only terms from unspaced scripts, and only those actually present:
+        -- an absent term in the alternation would match nothing but still cost
+        -- a branch, and a Latin stem would match inside unrelated words.
+        SELECT string_agg(t.term, '|' ORDER BY length(t.term) DESC, t.term) AS pattern
+        FROM (SELECT DISTINCT term FROM public.bm25_terms(query, cfg)) t
+        WHERE t.term ~ public.bm25_script_class()
+          AND strpos(content, t.term) > 0
+    ),
+    spaced AS (
+        SELECT ts_headline(cfg, content, websearch_to_tsquery(cfg, query),
+            'StartSel="' || replace(start_sel, '"', '\"')
+            || '", StopSel="' || replace(stop_sel, '"', '\"') || '"'
+            -- Fragmenting would happily discard the CJK half of a document as
+            -- uninteresting, since ts_headline cannot see any match in it.
+            || CASE WHEN (SELECT pattern FROM marks) IS NULL
+                    THEN '' ELSE ', HighlightAll=true' END) AS marked
+    )
+    SELECT CASE
+        WHEN m.pattern IS NULL THEN s.marked
+        -- Bigrams are marked one pair at a time, so a four-character match comes
+        -- back as two adjacent spans; splicing out the seam between them makes
+        -- it one.
+        ELSE replace(
+                regexp_replace(s.marked, '(' || m.pattern || ')',
+                               start_sel || '\1' || stop_sel, 'g'),
+                stop_sel || start_sel, '')
+    END
+    FROM marks m, spaced s;
+$$;
+
 -- Attach to a table:
 --
 --   ALTER TABLE messages ADD COLUMN bm25 bm25_catalog.bm25vector;

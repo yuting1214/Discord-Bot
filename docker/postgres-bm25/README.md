@@ -359,6 +359,38 @@ SELECT public.bm25_nearest_term('sourdough');  -- sourdough, unchanged
 It matches against the **vocabulary**, so it can only ever suggest a word that is in
 your data. Raise the second argument (default `0.4`) to be stricter.
 
+### Highlighting
+
+`ts_headline` marks matched words in a result, and on its own it cannot mark any of the
+scripts this image exists for. It re-parses the document with the configuration's
+parser, which does not segment them — so a search that ranked a Chinese document
+correctly hands it back with nothing marked, which reads as a broken search box.
+
+`bm25_headline` runs `ts_headline` for the spaced part and locates the analyzer's own
+terms for the rest:
+
+| query | `ts_headline` | `bm25_headline` |
+|---|---|---|
+| `sourdough` | looking for **sourdough** bread starter | looking for **sourdough** bread starter |
+| `麵包` | 酸種麵包的做法其實很簡單 ✗ | 酸種**麵包**的做法其實很簡單 ✓ |
+| `ขนมปัง` | …เกี่ยวกับขนมปังเปรี้ยว ✗ | …เกี่ยวกับ**ขนมปัง**เปรี้ยว ✓ |
+| `빵` | 사워도우 빵에 대한 ✗ | 사워도우 **빵**에 대한 ✓ |
+
+```sql
+SELECT public.bm25_headline(content, 'sourdough hydration', '<mark>', '</mark>')
+FROM messages
+ORDER BY bm25 <&> bm25_catalog.to_bm25query(
+           'messages_bm25_idx', public.to_bm25_query('sourdough hydration'))
+LIMIT 5;
+```
+
+Selectors default to `<b>`/`</b>`. It marks only terms that are genuinely in the
+document, so a decoy that ranked below the target comes back with nothing marked —
+which is the honest thing for a snippet to show. Japanese and Korean are bigram-marked
+and adjacent spans are spliced together, so `サワードウ` marks as `**サワード**ウ`
+rather than four separate fragments: contiguous, and one character short of the full
+compound, because the last bigram overlaps the one before it.
+
 ### Phrase, proximity and boolean search
 
 A `bm25vector` is a bag of `{term_id:frequency}` — it has **no positions**, so BM25
