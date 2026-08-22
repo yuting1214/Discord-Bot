@@ -9,9 +9,22 @@ pgvector, pgBackRest backups and the SSL wrapper. Adopting a third-party search
 image such as `paradedb/paradedb` would trade all of that away to gain one
 extension, so BM25 is layered on top instead.
 
-VectorChord rather than ParadeDB's `pg_search`, purely on packaging: `pg_search`
-publishes Linux **RPMs** only and this base is Debian, so using it would mean
-compiling Rust/pgrx from source. VectorChord ships `.deb` for pg14–18.
+VectorChord rather than ParadeDB's `pg_search` — but **not** for packaging reasons.
+An earlier version of this document claimed `pg_search` ships Linux RPMs only. That
+was wrong: it publishes 32 Debian packages per release, including
+`postgresql-18-pg-search_0.25.3-1PARADEDB-trixie_amd64.deb`, which matches this base
+exactly. The error came from reading a truncated listing of the release assets.
+
+The real reasons:
+
+| | ParadeDB `pg_search` | VectorChord `vchord_bm25` |
+|---|---|---|
+| Licence | **AGPL-3.0** | permissive |
+| Shared object | ~143 MB | ~2 MB |
+| Idle memory | comparable — see below | comparable |
+
+Licence is the deciding factor. This image exists to be deployed by other people,
+and AGPL-3.0 on the database engine is a constraint many of them cannot accept.
 
 ## What's inside
 
@@ -32,8 +45,14 @@ Idle anon memory, identical conditions, measured natively:
 | **+ vchord_bm25 — this image** | **6.5 MB** |
 | + pg_tokenizer | 337.5 MB |
 
-`pg_tokenizer` costs **~331 MB** because it preloads tokenizer models, and it is
-deliberately **not** installed. BM25 needs a `bm25vector` — a sparse
+`pg_tokenizer` costs **~331 MB** and is deliberately **not** installed.
+
+> **Read this figure correctly.** 6.5 MB is *anon* memory at idle on an empty
+> database. Total cgroup memory after a realistic 20,000-document workload is
+> **87.6 MB**, against **95.4 MB** for the same workload on `pg_search`. The honest
+> comparison against a BM25 competitor is roughly **8% better, not 50× better**.
+> The 50× figure only describes the gap against `pg_tokenizer` at idle, which is an
+> *allocation* penalty from preloading models — not a property of BM25 itself. BM25 needs a `bm25vector` — a sparse
 `{term_id:frequency}` map — but nothing requires that vector to come from
 `pg_tokenizer`. Postgres' own text search produces the same thing for a rounding
 error in memory.
@@ -147,6 +166,30 @@ to_tsvector('english', '我想要一個關於酸種麵包的建議')
 
 `bm25_terms` splits CJK runs out before calling `to_tsvector` and emits bigrams
 for them, so both scripts are handled in one pass.
+
+## Known issue: index size scales with vocabulary, not corpus
+
+`vchord_bm25` allocates roughly **8 KB per distinct vocabulary term**, largely
+independent of how many documents contain it. This is measurable in this repo's own
+benchmark: 20,000 documents produced 20,079 distinct terms and a **161 MB** index —
+8.0 KB per term.
+
+That benchmark's corpus appended a unique number to every document, which looked like
+an artifact at the time. It is not an artifact; it is the pathological case, and it is
+a realistic one. Chat and log data are full of high-cardinality tokens — usernames,
+URLs, IDs, hashes — and every one becomes a permanent vocabulary entry.
+
+| corpus shape | distinct terms | index | container |
+|---|---|---|---|
+| ordinary prose | ~5,000 | 1.3 MB | 88 MB |
+| one unique token per document | 20,000 | **157 MB** | **416 MB** |
+
+For comparison, `pg_search` indexed the same high-cardinality corpus in 3.2 MB.
+
+**Mitigation before this is used at scale:** apply a document-frequency floor in
+`bm25_terms` so tokens appearing in fewer than N documents are not admitted to the
+vocabulary, and/or strip URL, numeric and hash-shaped tokens. Not yet implemented —
+tracked for v0.3.0.
 
 ## Build
 

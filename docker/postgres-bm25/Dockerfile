@@ -5,9 +5,18 @@
 # friends) would trade all of that away to gain one extension, so the BM25
 # extension is layered on top instead.
 #
-# VectorChord rather than ParadeDB's pg_search purely on packaging: pg_search
-# ships Linux RPMs only, and this base is Debian, so it would mean compiling
-# Rust/pgrx from source. VectorChord publishes .deb for pg14-18.
+# VectorChord rather than ParadeDB's pg_search. NOT on packaging: pg_search does
+# publish Debian packages, including postgresql-18-pg-search_...-trixie_amd64.deb,
+# which matches this base exactly. An earlier revision of this file claimed
+# otherwise; that claim was wrong, from a truncated listing of the release assets.
+#
+# The actual reasons:
+#   * Licence. ParadeDB is AGPL-3.0. This image is meant to be deployed by other
+#     people, and AGPL on the database engine is a constraint many of them cannot
+#     accept. VectorChord is permissively licensed.
+#   * Size. pg_search's shared object is ~143 MB against roughly 2 MB.
+#
+# On memory the two are close, not orders apart -- see README.
 #
 # MEMORY: measured idle anon memory, identical conditions, native (no emulation):
 #
