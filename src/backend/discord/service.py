@@ -16,6 +16,7 @@ import logging
 from uuid import UUID
 
 from sqlalchemy import asc, case, desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +34,7 @@ from src.backend.fastapi.models import (
     Session,
     User,
 )
+from src.config import bot_config
 
 logger = logging.getLogger(__name__)
 
@@ -148,12 +150,21 @@ async def get_session_if_exists(db: AsyncSession, session_id: UUID | str) -> Ses
 
 
 async def manage_session(
-    db: AsyncSession, channel_discord_id: str, user: User, is_group: bool, is_new_session: bool
+    db: AsyncSession,
+    channel_discord_id: str,
+    user: User,
+    is_group: bool,
+    is_new_session: bool,
+    deactivated: list | None = None,
 ) -> Session:
     """Return the session this command should write to.
 
     A new session deactivates whatever was active; an ongoing one is reused, or
     created if nothing is active yet.
+
+    Ids of the sessions it closed are appended to ``deactivated`` when one is
+    given. A closed session is the moment to summarise it, and the caller has to
+    do that after its transaction commits rather than inside it.
     """
     active = await find_active_sessions(db, channel_discord_id, user.id, is_group)
 
@@ -162,6 +173,8 @@ async def manage_session(
 
     for session in active:
         deactivate_session(session)
+        if deactivated is not None:
+            deactivated.append(session.id)
 
     session = Session(
         channel_discord_id=channel_discord_id, is_active=True, is_group=is_group, users=[user]
@@ -235,19 +248,56 @@ async def create_command_log(
     return command_log
 
 
+async def get_or_create_llm(db: AsyncSession, api_endpoint: str, provider: str) -> LLM:
+    """The `llms` row for a model, created on first sight.
+
+    Not seeded from a catalogue. A fixed list of models is wrong the day a
+    provider ships a new one -- which is how the previous revision of this
+    template stayed pinned to gpt-3.5-turbo-0125 -- and a catalogue that has to
+    be right before token usage can be recorded is a catalogue that silently
+    stops usage being recorded. This records what the provider actually
+    answered with.
+    """
+    llm = (await db.execute(select(LLM).where(LLM.api_endpoint == api_endpoint))).scalars().first()
+    if llm is not None:
+        return llm
+
+    # OpenRouter answers with `vendor/model`; OpenAI answers with the bare id.
+    vendor = api_endpoint.split("/")[0] if "/" in api_endpoint else provider
+    llm = LLM(
+        llm_model_name=api_endpoint,
+        llm_vendor=vendor,
+        api_provider=provider,
+        api_endpoint=api_endpoint,
+    )
+    db.add(llm)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Two commands answered by the same new model at once. One insert wins;
+        # the other reads it back rather than failing a user's message.
+        await db.rollback()
+        llm = (await db.execute(
+            select(LLM).where(LLM.api_endpoint == api_endpoint))).scalars().first()
+        if llm is None:
+            raise
+    return llm
+
+
 async def record_llm_usage(
     db: AsyncSession, session_id: UUID, model: str, input_tokens: int, output_tokens: int
 ) -> LLMUsage | None:
-    """Record token usage, best effort.
+    """Record what a completion actually cost.
 
-    Requires a matching row in ``llms``; usage is skipped rather than failing the
-    user's message when the model in use has not been seeded.
+    Previously this required a pre-seeded `llms` row and skipped when it found
+    none. Nothing ever seeded that table, so every completion's token counts
+    were discarded -- silently, at debug level -- and llm_usages stayed empty in
+    production for the life of the template.
     """
-    llm = (await db.execute(select(LLM).where(LLM.api_endpoint == model))).scalars().first()
-    if llm is None:
-        logger.debug("No llms row for api_endpoint %r; skipping usage record", model)
+    if not model:
         return None
 
+    llm = await get_or_create_llm(db, model, bot_config.llm.provider)
     usage = LLMUsage(
         llm_id=llm.id,
         session_id=session_id,

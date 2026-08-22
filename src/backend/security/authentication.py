@@ -12,6 +12,8 @@ import secrets
 from dataclasses import dataclass
 from functools import lru_cache
 
+from fastapi import HTTPException, Request
+
 from src.backend.fastapi.core.init_settings import global_settings as settings
 
 logger = logging.getLogger(__name__)
@@ -64,3 +66,19 @@ def authenticate_user(username: str, password: str) -> bool:
     # Both are evaluated unconditionally: `and` would short-circuit and leak
     # whether the username alone was right.
     return correct_username & correct_password
+
+
+def require_admin_session(request: Request) -> None:
+    """Gate an endpoint behind the same login that protects /docs.
+
+    For endpoints that spend the deployer's money. Everything under /api/v1 is
+    otherwise open, which is survivable for reads and is not survivable for a
+    route that calls a paid provider on demand -- `?force=true` removes the
+    once-per-session guard, so an unauthenticated loop over it is a money pump
+    pointed at whoever deployed the template.
+    """
+    if not request.session.get("authenticated"):
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in at /login first; this endpoint spends provider credit.",
+        )

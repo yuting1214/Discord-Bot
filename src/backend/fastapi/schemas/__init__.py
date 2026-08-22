@@ -11,7 +11,13 @@ from src.backend.fastapi.schemas.llm import LLMBase, LLMCreate, LLMSchema
 from src.backend.fastapi.schemas.llm_usage import LLMUsageBase, LLMUsageCreate, LLMUsageSchema, LLMUsageUpdate
 from src.backend.fastapi.schemas.message import MessageBase, MessageCreate, MessageSchema
 from src.backend.fastapi.schemas.server import ServerBase, ServerCreate, ServerSchema
-from src.backend.fastapi.schemas.session import SessionBase, SessionCreate, SessionSchema, SessionUpdate
+from src.backend.fastapi.schemas.session import (
+    SessionBase,
+    SessionCreate,
+    SessionSchema,
+    SessionSummary,
+    SessionUpdate,
+)
 from src.backend.fastapi.schemas.user import UserBase, UserCreate, UserSchema
 
 __all__ = [
@@ -44,6 +50,7 @@ __all__ = [
     "SessionBase",
     "SessionCreate",
     "SessionSchema",
+    "SessionSummary",
     "SessionUpdate",
     "UserBase",
     "UserCreate",

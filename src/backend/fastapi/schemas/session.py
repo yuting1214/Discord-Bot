@@ -20,6 +20,20 @@ class SessionSchema(SessionBase):
     id: UUID
     start_time: datetime
     end_time: datetime | None = None
+    summary: str | None = None
+    summarized_at: datetime | None = None
 
     class Config:
         from_attributes = True
+
+
+class SessionSummary(BaseModel):
+    """The result of summarising one session.
+
+    ``summary`` is null when there was nothing worth summarising -- a session of
+    one message, or none.
+    """
+
+    session_id: UUID
+    summary: str | None = None
+    summarized: bool

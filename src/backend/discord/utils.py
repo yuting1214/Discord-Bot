@@ -2,38 +2,40 @@ import hashlib
 import re
 import uuid
 
+# Any UUID version, on purpose. The previous pattern hard-coded version 4
+# (`4[0-9a-f]{3}` and variant `[89ab]`), which is a trap on two counts:
+# PostgreSQL 18 ships uuidv7() and this template's own image documents it, so
+# the day session ids come from the database every resume would be rejected --
+# and rejected as *malformed*, which is the one thing they would not be.
+_UUID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+
 
 def extract_uuid(input_string: str) -> str:
+    """Return the first UUID in ``input_string``, or ``""`` if there is none.
+
+    This answers "is this the right shape", and nothing else. Whether such a
+    session exists is the caller's question, and conflating the two told a user
+    pasting a valid id for a deleted session that their id was malformed and
+    sent them back to /search to copy the same id again.
+
+    Never raises. It is called outside the caller's try block, so a ValueError
+    here would surface as the generic failure message rather than as anything
+    the user could act on.
     """
-    Extracts a UUID (version 4) from the given string.
-    
-    Args:
-    input_string (str): The string that contains a UUID.
-    
-    Returns:
-    str: The extracted UUID if found, otherwise an empty string.
-    
-    Raises:
-    ValueError: If the extracted string is not a valid UUID4.
-    """
-    # UUID4 pattern
-    uuid4_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
-    
-    # Find all matches
-    matches = re.findall(uuid4_pattern, input_string, re.IGNORECASE)
-    
-    if matches:
-        # Get the first match
-        potential_uuid = matches[0]
-        
-        # Validate that it's a proper UUID4
-        try:
-            uuid_obj = uuid.UUID(potential_uuid, version=4)
-            return str(uuid_obj)
-        except ValueError as e:
-            raise ValueError(f"The extracted string '{potential_uuid}' is not a valid UUID4.") from e
-    
-    return ""
+    match = _UUID_PATTERN.search(input_string or "")
+    if not match:
+        return ""
+    try:
+        # No version= argument: passing one *forces* the version and variant
+        # bits rather than checking them, so it would silently hand back a
+        # different id than the user typed.
+        return str(uuid.UUID(match.group(0)))
+    except ValueError:
+        return ""
+
 
 def generate_uuid_key(uuid1: uuid.UUID | str, uuid2: uuid.UUID | str) -> str:
     # Ensure the inputs are UUID objects or valid UUID strings

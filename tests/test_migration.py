@@ -7,6 +7,8 @@ message it tries to store.
 """
 
 
+import re
+
 import pytest
 from sqlalchemy import Column, String, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -77,3 +79,98 @@ async def test_a_required_column_is_reported_not_guessed(tmp_path, caplog):
     finally:
         Message.__table__._columns.remove(Message.__table__.c.mandatory_field)
     await engine.dispose()
+
+
+def test_the_analyzer_sql_ships_with_the_application():
+    """It must live under src/: the container image copies src/ and nothing else,
+    so a path outside it resolves locally and is missing in production."""
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    assert ANALYZER_SQL.exists(), ANALYZER_SQL
+    assert "src" in ANALYZER_SQL.parts, "must be inside src/ to reach the image"
+    body = ANALYZER_SQL.read_text()
+    for expected in ("bm25_vocabulary", "to_bm25", "to_bm25_query", "bm25_terms"):
+        assert expected in body, expected
+
+
+def test_high_cardinality_token_types_stay_out_of_the_vocabulary():
+    """vchord_bm25 spends ~8KB of index per distinct term regardless of how many
+    documents contain it, so ids, hashes and URLs are the dominant cost on chat
+    data. Measured on 20,000 chat-shaped rows: 641MB of index and 81,714 terms
+    with these mappings present, 736KB and 15 terms without them.
+    """
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    body = ANALYZER_SQL.read_text()
+    mapping_drop = body.split("DROP MAPPING IF EXISTS FOR", 1)
+    assert len(mapping_drop) == 2, "the token-type mappings are no longer dropped"
+    dropped = mapping_drop[1].split(";", 1)[0]
+    for token_type in ("numword", "uint", "int", "url", "url_path", "file", "version"):
+        assert token_type in dropped, token_type
+
+
+# Codepoint, not character: U+8C48 and U+F900 render identically, and pasting
+# the wrong one silently folded the whole Hangul block into the han range.
+UNSPACED_SCRIPTS = {
+    "han": {"CJK ext A": 0x3400, "CJK": 0x4E00, "CJK compatibility": 0xF900,
+            "CJK ext B": 0x20000},
+    "kana": {"hiragana": 0x3042, "katakana": 0x30A2, "katakana phonetic": 0x31F0,
+             "halfwidth katakana": 0xFF66, "halfwidth voiced mark": 0xFF9F},
+    "hangul": {"syllables": 0xAC00, "compatibility jamo": 0x3130},
+    "th": {"Thai": 0x0E01},
+    "lo": {"Lao": 0x0E81},
+    "km": {"Khmer": 0x1780},
+    "my": {"Myanmar": 0x1000},
+}
+
+
+def _class_ranges(body: str, script: str) -> list[tuple[int, int]]:
+    """The \\U ranges the analyzer assigns to one script."""
+    start = body.index("ELSE '[") if script == "all" else body.index(f"WHEN '{script}'")
+    end = body.index("]'", start)
+    return [
+        (int(lo, 16), int(hi, 16))
+        for lo, hi in re.findall(r"\\U([0-9A-F]{8})-\\U([0-9A-F]{8})", body[start:end])
+    ]
+
+
+@pytest.mark.parametrize("script", sorted(UNSPACED_SCRIPTS))
+def test_each_unspaced_script_is_classified_and_only_it(script):
+    """Scripts to_tsvector cannot segment must reach a segmenter, and must reach
+    the right one. Neither failure is loud: a script missing from the union
+    becomes one token per phrase, and a script leaking into another's range is
+    tokenized twice, once by each.
+    """
+    from src.backend.fastapi.dependencies.database import ANALYZER_SQL
+
+    body = ANALYZER_SQL.read_text()
+    mine = _class_ranges(body, script)
+    union = _class_ranges(body, "all")
+
+    for name, codepoint in UNSPACED_SCRIPTS[script].items():
+        assert any(lo <= codepoint <= hi for lo, hi in mine), f"{name} missing from {script}"
+        assert any(lo <= codepoint <= hi for lo, hi in union), f"{name} missing from the union"
+        for other in UNSPACED_SCRIPTS:
+            if other == script:
+                continue
+            assert not any(
+                lo <= codepoint <= hi for lo, hi in _class_ranges(body, other)
+            ), f"{name} also matches the {other} range"
+
+
+def test_pre_existing_rows_are_backfilled_for_lexical_search():
+    """A row written before the bm25 column existed keeps a NULL, and the
+    lexical tier filters on `bm25 IS NOT NULL` -- so without a backfill an
+    upgrading deployment's whole search history goes invisible, silently and
+    permanently. Verified against PostgreSQL 18: a v0.2.0-era row was
+    unsearchable before this and matched immediately after.
+    """
+    from src.backend.fastapi.dependencies import database
+
+    assert hasattr(database, "_BM25_BACKFILL"), "the backfill was removed"
+    backfill = database._BM25_BACKFILL
+    # UPDATE OF content is what the trigger listens for; anything else is a
+    # no-op that would leave the rows exactly as invisible as before.
+    assert "SET content = content" in backfill
+    assert "bm25 IS NULL" in backfill, "it must not rewrite rows that are already indexed"
+    assert "LIMIT" in backfill, "unbounded, it would hold the boot transaction open"

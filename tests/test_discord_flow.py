@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from src.backend.discord import run_async, service
 from src.backend.fastapi.models import (
+    LLM,
     Channel,
     CommandLog,
     Conversation,
@@ -23,7 +24,9 @@ from src.backend.fastapi.models import (
     User,
 )
 from src.backend.search import service as search_service
+from src.backend.search import summary as summary_module
 from src.llm.chat import ChatResult
+from tests.conftest import toy_embedding
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,20 +53,19 @@ def wire(monkeypatch, session_factory):
 
     # No provider call in tests: embeddings are deterministic stand-ins.
     async def fake_embed(text):
-        return _toy_embedding(text)
+        return toy_embedding(text)
 
-    monkeypatch.setattr(run_async, "embed", fake_embed)
     monkeypatch.setattr(search_service, "embed", fake_embed)
+    monkeypatch.setattr(summary_module, "embed", fake_embed)
+    # Summarisation is a fire-and-forget task against its own database session,
+    # which in a test would be the real one rather than the fixture's. Tests
+    # that care about summaries call summarize_session directly.
+    monkeypatch.setattr(run_async, "schedule_summary", lambda session_id: None)
+    monkeypatch.setattr(summary_module, "AsyncSessionLocal", session_factory)
     return session_factory
 
 
-def _toy_embedding(text: str) -> list[float]:
-    """A tiny bag-of-characters vector: similar strings point similar ways."""
-    vector = [0.0] * 26
-    for character in text.lower():
-        if "a" <= character <= "z":
-            vector[ord(character) - 97] += 1.0
-    return vector or [0.0] * 26
+
 
 
 async def count(factory, model) -> int:
@@ -202,9 +204,17 @@ async def test_resume_rejects_bad_input(wire):
 
     missing = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
     gone = (await run_async.resume_session(**CTX, user_input=missing, is_group=False))["message"]
-    assert "No session found" in gone
+    assert "No session with ID" in gone
     assert missing in gone, "echo the id so the user can see what was tried"
     assert "/search" in gone
+
+    # Browser testing found these two returning byte-identical text, because a
+    # UUID4-only pattern rejected the nil UUID before any lookup happened. A
+    # user pasting a valid id for a deleted session was told it was malformed.
+    nil = "00000000-0000-0000-0000-000000000000"
+    unknown = (await run_async.resume_session(**CTX, user_input=nil, is_group=False))["message"]
+    assert unknown != bad, "a well-formed unknown id is not the same failure as garbage"
+    assert nil in unknown, "it reached the lookup rather than being rejected on shape"
 
 
 async def test_repeat_user_does_not_duplicate_records(wire, monkeypatch):
@@ -252,7 +262,11 @@ async def test_messages_are_indexed_for_search(wire, monkeypatch):
         docs = (await db.execute(select(SearchDocument))).scalars().all()
     assert len(docs) == 1
     assert docs[0].content == "the capital of france"
-    assert docs[0].embedding, "embedding should be stored"
+    # Deliberately no embedding. Every turn used to be embedded as it arrived --
+    # one provider call per message, on the hot path -- and the semantic tier now
+    # works from one summary per session instead. Lexical search still covers
+    # this message, and costs nothing.
+    assert docs[0].embedding is None
 
 
 async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
@@ -271,8 +285,10 @@ async def test_search_ranks_the_relevant_conversation_first(wire, monkeypatch):
     # otherwise /resume_session is unusable without reading the database.
     assert "session `" in message
     assert "/resume_session" in message
-    # The relevant hit should come first.
-    assert message.index("capital of france") < message.index("sourdough")
+    # The unrelated turn should not be a result at all. It shares no term with
+    # the query, and the semantic tier has nothing to say until the session is
+    # summarised -- so there is nothing to rank it on.
+    assert "sourdough" not in message, message
 
 
 async def test_search_is_scoped_per_user(wire, monkeypatch):
@@ -313,7 +329,7 @@ async def test_search_returns_nothing_for_an_unrelated_query(wire, monkeypatch):
     async with wire() as db:
         index_key = (await db.execute(select(SearchDocument))).scalars().first().index_key
         # keyword-only, so an unrelated query scores zero and is filtered out
-        results = await search_service.hybrid_search(db, index_key, "zzz", semantic_ratio=0.0)
+        results = await search_service.hybrid_search(db, index_key, "zzz")
     assert results == []
 
 
@@ -452,3 +468,63 @@ async def test_truncated_results_say_how_many_matched(wire, monkeypatch):
     # Six match, fewer are shown, and the header must admit it.
     assert " of " in message, message.split("\n")[0]
     assert message.startswith("**"), message[:40]
+
+
+async def test_token_usage_is_actually_recorded(wire, monkeypatch):
+    """It never was. record_llm_usage required a row in `llms`, nothing seeded
+    that table, and the miss was logged at debug -- so every completion's token
+    counts were discarded silently and llm_usages stayed empty in production for
+    the life of the template."""
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    await run_async.complete_session_chat(
+        **CTX, user_input="hello", is_group=False, is_new_session=True
+    )
+
+    async with wire() as db:
+        usages = (await db.execute(select(LLMUsage))).scalars().all()
+        llms = (await db.execute(select(LLM))).scalars().all()
+
+    assert len(usages) == 1, "a completion must leave a usage row"
+    assert usages[0].input_tokens > 0 and usages[0].output_tokens > 0
+    assert len(llms) == 1, "the model row is created on first sight"
+    assert usages[0].llm_id == llms[0].id, "the usage points at the model that answered"
+
+
+async def test_an_unknown_model_does_not_need_seeding(wire, monkeypatch):
+    """The point of the fix: a provider shipping a new model must not silently
+    stop usage being recorded, which is what a fixed catalogue guarantees."""
+    async def brand_new_model(*a, **k):
+        return ChatResult(
+            text="hi", model="vendor/model-that-did-not-exist-yesterday",
+            input_tokens=11, output_tokens=22,
+        )
+
+    monkeypatch.setattr(run_async, "achat", brand_new_model)
+    await run_async.complete_session_chat(
+        **CTX, user_input="hello", is_group=False, is_new_session=True
+    )
+
+    async with wire() as db:
+        # By endpoint, not .first(): the fixture seeds one model already, and
+        # the whole point is that an *unseeded* one is recorded too.
+        llm = (await db.execute(select(LLM).where(
+            LLM.api_endpoint == "vendor/model-that-did-not-exist-yesterday"))).scalars().first()
+        usage = (await db.execute(select(LLMUsage))).scalars().first()
+
+    assert llm is not None, "a model nobody seeded must still be recorded"
+    assert llm.llm_vendor == "vendor", "OpenRouter answers with vendor/model"
+    assert usage.input_tokens == 11 and usage.output_tokens == 22
+
+
+async def test_the_same_model_is_not_recreated_per_turn(wire, monkeypatch):
+    monkeypatch.setattr(run_async, "achat", await stub_chat())
+    for _ in range(3):
+        await run_async.complete_session_chat(
+            **CTX, user_input="hello", is_group=False, is_new_session=False
+        )
+
+    async with wire() as db:
+        matching = (await db.execute(select(LLM).where(
+            LLM.api_endpoint == "openai/gpt-5.6-luna"))).scalars().all()
+        assert len(matching) == 1, "one row per model, not one per turn"
+        assert len((await db.execute(select(LLMUsage))).scalars().all()) == 3

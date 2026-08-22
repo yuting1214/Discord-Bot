@@ -1,35 +1,42 @@
 """Configuration for the LLM layer.
 
-Deliberately free of any ``backend`` import: importing ``llm`` must never pull in
-the FastAPI application (or its import-time argparse).
+Values now come from :mod:`src.config` -- `config/bot.yaml` with environment
+variables layered on top -- rather than from `os.getenv` calls scattered here.
+The module-level names are kept because they are the public surface of this
+package and are imported by call sites as defaults.
 
-Every model id is overridable by environment variable. Hardcoded model ids are
-what left the previous revision of this template pinned to gpt-3.5-turbo-0125.
+Deliberately free of any ``backend`` import: importing ``llm`` must never pull
+in the FastAPI application.
 """
-
-import os
 
 from dotenv import load_dotenv
 
+from src.config import bot_config
+
 load_dotenv()
 
-# "openai" or "openrouter"
-DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+_llm = bot_config.llm
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-5.6-luna")
+# "openai" or "openrouter"
+DEFAULT_PROVIDER = _llm.provider
+
+OPENAI_MODEL = _llm.model_for("openai")
+OPENROUTER_MODEL = _llm.model_for("openrouter")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Unset by default, and omitted from the request when unset. Reasoning models
 # (including the default gpt-5.6-luna) reject any value but their own default,
 # so sending one unconditionally fails every call with a 400.
-_temperature = os.getenv("LLM_TEMPERATURE", "").strip()
-TEMPERATURE: float | None = float(_temperature) if _temperature else None
-REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
-MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+TEMPERATURE: float | None = _llm.temperature
+REQUEST_TIMEOUT = _llm.timeout
+MAX_RETRIES = _llm.max_retries
 
 # Reasoning is requested through OpenRouter's `reasoning` body field. The model
 # returns `reasoning_details`, which must be handed back verbatim on the next
 # turn for it to continue reasoning rather than restart.
-REASONING_ENABLED = os.getenv("LLM_REASONING", "true").lower() in ("1", "true", "yes", "on")
+REASONING_ENABLED = _llm.reasoning
+
+# The persona. Lives in config/bot.yaml so it can be changed without touching
+# Python; see src/llm/prompt/base_text_templates.py for the historical name.
+SYSTEM_PROMPT = bot_config.prompts.system

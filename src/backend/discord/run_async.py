@@ -12,13 +12,13 @@ from src.backend.discord import service
 from src.backend.discord.errors import describe
 from src.backend.discord.utils import extract_uuid
 from src.backend.fastapi.dependencies.database import AsyncSessionLocal
-from src.backend.search.embeddings import embed
 from src.backend.search.service import (
     DEFAULT_TOP_N,
     hybrid_search,
     index_document,
     to_conversation_ids_and_scores,
 )
+from src.backend.search.summary import schedule_summary
 from src.llm.chat import achat
 from src.llm.memory.memory_management import format_memory
 
@@ -32,6 +32,13 @@ def _render_search_results(results: list[dict], is_group: bool, shown: int) -> s
     a wall of braces before /resume_session could be used at all.
     """
     total = len(results)
+    if not total:
+        # Reachable since both tiers gained a match cutoff: a query sharing no
+        # term and no meaning with anything stored now returns nothing at all,
+        # where it used to return whatever happened to be closest. Offering
+        # /resume_session here would point at a list that does not exist.
+        return "**No results.** Nothing stored in this channel matches that yet."
+
     results = results[:shown]
     header = f"**{len(results)} of {total} result(s)**" if total > len(results) else f"**{total} result(s)**"
     lines = [header]
@@ -83,6 +90,8 @@ async def complete_session_chat(
 ) -> dict:
     try:
         # Transaction 1: record the user's turn and gather the memory window.
+        # Populated inside the transaction, acted on after it commits.
+        closed: list = []
         async with AsyncSessionLocal() as db:
             async with db.begin():
                 user = await service.get_or_create_user(db, user_discord_id, user_name)
@@ -93,7 +102,7 @@ async def complete_session_chat(
                     db, server.id, channel_discord_id, channel_name, user, is_group
                 )
                 session = await service.manage_session(
-                    db, channel_discord_id, user, is_group, is_new_session
+                    db, channel_discord_id, user, is_group, is_new_session, closed
                 )
                 conversation = await service.create_conversation(db, session.id)
                 await service.create_message(
@@ -117,8 +126,11 @@ async def complete_session_chat(
                 index_key = service.search_index_key(user.id, channel.id, is_group)
                 session_id, conversation_id, user_id = session.id, conversation.id, user.id
 
-        # Both network calls run with no database connection held.
-        embedding = await embed(user_input)
+        # The transaction is committed, so a session it closed can be
+        # summarised now without holding a connection while the provider works.
+        for closed_session_id in closed:
+            schedule_summary(closed_session_id)
+
         result = await achat(user_input, memory)
 
         # Transaction 2: record the model's turn and make the exchange searchable.
@@ -144,7 +156,6 @@ async def complete_session_chat(
                     conversation_id=conversation_id,
                     session_id=session_id,
                     content=user_input,
-                    embedding=embedding,
                 )
 
         return {"llm_response": result.text}
@@ -165,15 +176,20 @@ async def resume_session(
     user_input: str,
     is_group: bool,
 ) -> dict:
+    # Shape and existence are different failures and get different messages. A
+    # well-formed id for a session that is gone used to be reported as
+    # malformed, which sent the user back to /search to copy the same id again.
     resume_session_id = extract_uuid(user_input)
     if not resume_session_id:
         return {
             "message": (
-                "That does not look like a session ID. Run `/search` (or "
+                "That is not a session ID — it should look like "
+                "`52e9d6ce-7fda-462c-9983-71fa6bedf6c4`. Run `/search` (or "
                 "`/search_group`) and copy the `session_id` from a result."
             )
         }
 
+    closed: list = []
     try:
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -189,8 +205,10 @@ async def resume_session(
                 if target is None:
                     return {
                         "message": (
-                            f"No session found with ID `{resume_session_id}`. "
-                            "Run `/search` to list sessions you can resume."
+                            f"No session with ID `{resume_session_id}`. The ID is "
+                            "well-formed, so it is either from another channel or "
+                            "the session no longer exists. Run `/search` to list "
+                            "sessions you can resume."
                         )
                     }
 
@@ -199,7 +217,13 @@ async def resume_session(
                 ):
                     if active.id != target.id:
                         service.deactivate_session(active)
+                        closed.append(active.id)
                 service.activate_session(target)
+
+        # After the commit: resuming one session closes another, and that one is
+        # now finished and worth summarising.
+        for closed_session_id in closed:
+            schedule_summary(closed_session_id)
 
         return {"message": f"Session - {resume_session_id} has resumed."}
 

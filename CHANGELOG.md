@@ -2,6 +2,134 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-08-22
+
+### Search
+- **Two-tier retrieval with Reciprocal Rank Fusion.** Lexical (BM25) and semantic
+  (pgvector) rankings are now fused by rank rather than blended by score. The previous
+  weighted sum was unworkable: cosine similarity lands around 0.3–0.5 while `ts_rank`
+  lands around 0.05, so a nominal 50/50 split behaved as roughly 90% semantic.
+- `search_documents` gains a trigger-populated `bm25` column and index, installed at
+  startup. A database without `vchord_bm25` still runs, with search falling back to the
+  semantic tier — so the app stays deployable against stock PostgreSQL.
+- **Each tier now decides what counts as a match before fusion.** RRF scores a document
+  by where it *placed*, not by whether it matched, and `ORDER BY … LIMIT n` always
+  returns n documents — so on a small table every document was a result for every query,
+  ranked by the tiers' opinions of each other rather than by the query. A BM25 score of
+  exactly 0 means no shared term and is no longer a hit; the vector tier is bounded by
+  `SEARCH_SEMANTIC_MAX_DISTANCE`. On the live database a query
+  for 麵包 went from 5 results spanning 0.031–0.033, with a decoy second, to 2 results
+  where the right one leads by 2×; a query about something never discussed now returns
+  nothing at all, which was previously impossible.
+- **The two tiers cover different text, and the README now says so.** Exact-term search
+  indexes your messages only; the semantic tier reads a summary written from the whole
+  transcript, replies included. So a phrase the bot said and you did not is findable by
+  meaning but not by exact term — even though results display the reply. Left as is
+  deliberately: `vchord_bm25` spends ~8 KB of index per distinct term, and bot replies are
+  long and vocabulary-rich, so indexing them is a measurement rather than a one-line change.
+- **The semantic cutoff ships at 0.75** (`SEARCH_SEMANTIC_MAX_DISTANCE`). It was first
+  measured at 0.6, when the tier embedded individual short messages; a
+  session summary is a long dense paragraph, so short-query-to-long-document distance sits
+  higher and the old number silently cut 6 of 14 legitimate matches. Found by browser
+  testing that appeared to pass — the hits were coming from the lexical tier.
+- Tunable via `SEARCH_RRF_K`, `SEARCH_LEXICAL_WEIGHT`, `SEARCH_SEMANTIC_WEIGHT`,
+  `SEARCH_SEMANTIC_MAX_DISTANCE`.
+
+- **One embedding per session, not one per turn.** Every user message was embedded as it
+  arrived — a provider call on the hot path of every command — and most turns do not
+  deserve one: `"you good?"` embedded to something plausible and outranked a genuinely
+  relevant turn, because a short aside sits near everything in vector space. The semantic
+  tier now works from an LLM summary written once when a session ends, which is
+  O(sessions) rather than O(turns) and is dense and topical by construction.
+  Lexical search is unaffected and still covers every individual message, because BM25 is
+  populated by a database trigger at no cost.
+- **Three things trigger a summary**, because each leaves a hole the others do not:
+  closing a session, an idle sweep (a session nobody ever closes would otherwise never be
+  summarised), and `POST /api/v1/sessions/{id}/summary` for backfill and retries.
+  Tunable via `SUMMARY_ENABLED`, `SUMMARY_IDLE_MINUTES`, `SUMMARY_SWEEP_INTERVAL_MINUTES`
+  and `SUMMARY_BATCH_SIZE`.
+- `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
+  on startup, so an existing deployment upgrades without a migration.
+- **Documents indexed before BM25 existed are backfilled.** They carried a NULL `bm25`,
+  and the lexical tier filters on `bm25 IS NOT NULL` — so an upgrading deployment's entire
+  existing history was invisible to search, silently and permanently. Up to 5,000 rows per
+  restart, bounded so a large table cannot hold the boot transaction open past the
+  healthcheck.
+
+### Database
+- **Search now runs inside PostgreSQL.** The database is
+  [PostgreSQL + Hybrid Search](https://railway.com/deploy/postgresql-hybrid-search) — a
+  published template of its own, deployed alongside the bot rather than built from a
+  Dockerfile vendored here. It is Railway's `postgres-ssl` 18.6 plus `vchord_bm25` for
+  BM25 ranking and `icu_ext` for word segmentation, keeping pgvector, pgBackRest and the
+  SSL wrapper, at **6.7 MB idle**. This replaces Meilisearch, which cost a second
+  always-on container, a volume and a public domain the bot called over the internet.
+- **The analyzer** (`src/backend/search/analyzer.sql`, applied at startup) tokenizes per
+  script within a single document: `to_tsvector` for spaced scripts, ICU for Chinese,
+  Thai, Khmer, Lao and Burmese, bigrams for Japanese and Korean. It also folds
+  diacritics, keeps high-cardinality tokens such as ids and hashes out of the vocabulary
+  — `vchord_bm25` spends ~8 KB of index per distinct term, so on 20,000 chat-shaped rows
+  that is the difference between a 641 MB index and a 736 KB one — expands
+  single-character CJK queries, and highlights results in scripts `ts_headline` cannot
+  mark.
+- The database image, its 13-locale verification corpus and the benchmarks behind these
+  numbers now live in **[postgres-search](https://github.com/yuting1214/postgres-search)**.
+  `analyzer.sql` is vendored here because the application container ships `src/` and
+  nothing else.
+
+### Configuration
+- **One file for the bot's behaviour** (`config/bot.yaml`): persona, provider, model,
+  temperature, reasoning, embeddings, search tuning and memory window. Changing the
+  bot's character no longer means editing Python — it was previously spread across
+  `llm/config.py`, a prompt template module and a dozen `os.getenv` calls.
+- **Precedence is environment > file > defaults.** Every variable this template already
+  publishes still works and still wins, so a Railway variable retunes a running service
+  without a rebuild. A missing or malformed file falls back to defaults rather than
+  failing to boot, and one bad variable is logged and ignored rather than taking the
+  container down where the dashboard cannot be reached to fix it.
+- **Secrets are environment-only.** No API key or token is readable from the file, and a
+  test asserts the override table never gains one.
+- Removed `SEARCH_SEMANTIC_RATIO`. It was threaded through three functions and read by
+  none of them — a leftover from the linear blend that RRF replaced.
+
+### Fixed
+- **A valid session ID for a missing session no longer reports as malformed.**
+  `extract_uuid` matched UUID **4** only, so the nil UUID — and any v1/v5/v7 ID — was
+  rejected on shape before the lookup ran, and the user was told to go back to `/search`
+  and re-copy the ID they already had. It now accepts any UUID version, which also
+  matters because PostgreSQL 18 ships `uuidv7()` and this template's own database image
+  documents it: the day session IDs come from the database, every resume would have
+  broken. It no longer raises either — it is called outside the caller's `try`, so a
+  `ValueError` surfaced as the generic failure message.
+
+### Security
+- **The summary endpoint requires the `/docs` login.** It calls a paid provider on demand
+  and `?force=true` removes the once-per-session guard, so open to the internet it is an
+  unbounded charge against whoever deployed the template. Every other route under
+  `/api/v1` is a read; this is the only one that spends money.
+
+### Testing
+- **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set
+  `TEST_DATABASE_URL` and every test runs on a private schema of a real database. Every
+  production defect this project has had lived in a branch SQLite never executes, and
+  turning this on immediately found four more: `CREATE EXTENSION` resolving against the
+  caller's `search_path`, `bm25_vocabulary` doing the same, 26-dimension stub vectors that
+  only a JSON column would accept, and `TestClient` running the app on its own event loop
+  where asyncpg's pooled connections do not work.
+- `scripts/check_upgrade.py` builds a v0.1.0-era database and boots the current release
+  against it, asserting the columns are added, the data survives and pre-BM25 rows become
+  searchable.
+- HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
+- **Token usage is recorded for the first time.** `record_llm_usage` required a matching
+  row in `llms`, nothing ever seeded that table, and the miss was logged at debug — so
+  every completion's token counts were discarded silently and `llm_usages` stayed empty in
+  production for the life of the template. The `llms` row is now created from what the
+  provider actually answered with, so a model shipping tomorrow is recorded tomorrow.
+  Verified against a live database: two completions, `llm_usages` 0 → 2, with real counts.
+- Removed `src/backend/data/llm_models.py`. It listed Llama 3, GPT-3.5 and Claude 3, was
+  imported by nothing, and a fixed catalogue is what made the previous revision of this
+  template stay pinned to `gpt-3.5-turbo-0125`.
+
 ## [0.2.0] - 2026-08-21
 
 The template is rebranded and made public at this release. The deploy slug and
@@ -134,6 +262,58 @@ referral link are unchanged.
   Startup now reconciles missing nullable columns against the models, idempotently.
   A required column is logged as needing a migration rather than added with an
   invented default.
+
+### Search
+- **One embedding per session, not one per turn.** Every user message was embedded as it
+  arrived — a provider call on the hot path of every command — and most turns do not
+  deserve one: `"you good?"` embedded to something plausible and outranked a genuinely
+  relevant turn, because a short aside sits near everything in vector space. The semantic
+  tier now works from an LLM summary written once when a session ends, which is
+  O(sessions) rather than O(turns) and is dense and topical by construction.
+  Lexical search is unaffected and still covers every individual message, because BM25 is
+  populated by a database trigger at no cost.
+- **Three things trigger a summary**, because each leaves a hole the others do not:
+  closing a session, an idle sweep (a session nobody ever closes would otherwise never be
+  summarised), and `POST /api/v1/sessions/{id}/summary` for backfill and retries.
+  Tunable via `SUMMARY_ENABLED`, `SUMMARY_IDLE_MINUTES`, `SUMMARY_SWEEP_INTERVAL_MINUTES`
+  and `SUMMARY_BATCH_SIZE`.
+- `sessions` gains `summary`, `summary_vector` and `summarized_at`, all nullable and added
+  on startup, so an existing deployment upgrades without a migration.
+- **Documents indexed before BM25 existed are backfilled.** They carried a NULL `bm25`,
+  and the lexical tier filters on `bm25 IS NOT NULL` — so an upgrading deployment's entire
+  existing history was invisible to search, silently and permanently. Up to 5,000 rows per
+  restart, bounded so a large table cannot hold the boot transaction open past the
+  healthcheck.
+
+### Security
+- **The summary endpoint requires the `/docs` login.** It calls a paid provider on demand
+  and `?force=true` removes the once-per-session guard, so open to the internet it is an
+  unbounded charge against whoever deployed the template. Every other route under
+  `/api/v1` is a read; this is the only one that spends money.
+
+### Testing
+- **The suite runs against real PostgreSQL** (`./scripts/ci.sh`), not only SQLite. Set
+  `TEST_DATABASE_URL` and every test runs on a private schema of a real database. Every
+  production defect this project has had lived in a branch SQLite never executes, and
+  turning this on immediately found four more: `CREATE EXTENSION` resolving against the
+  caller's `search_path`, `bm25_vocabulary` doing the same, 26-dimension stub vectors that
+  only a JSON column would accept, and `TestClient` running the app on its own event loop
+  where asyncpg's pooled connections do not work.
+- `scripts/check_upgrade.py` builds a v0.1.0-era database and boots the current release
+  against it, asserting the columns are added, the data survives and pre-BM25 rows become
+  searchable.
+- HTTP tests moved from `TestClient` to `httpx.ASGITransport` on the test's own loop.
+
+### Fixed
+- **Token usage is recorded for the first time.** `record_llm_usage` required a matching
+  row in `llms`, nothing ever seeded that table, and the miss was logged at debug — so
+  every completion's token counts were discarded silently and `llm_usages` stayed empty in
+  production for the life of the template. The `llms` row is now created from what the
+  provider actually answered with, so a model shipping tomorrow is recorded tomorrow.
+  Verified against a live database: two completions, `llm_usages` 0 → 2, with real counts.
+- Removed `src/backend/data/llm_models.py`. It listed Llama 3, GPT-3.5 and Claude 3, was
+  imported by nothing, and a fixed catalogue is what made the previous revision of this
+  template stay pinned to `gpt-3.5-turbo-0125`.
 
 ### Configuration
 - **Env-driven settings replace module-level argparse**, which consumed the arguments of
