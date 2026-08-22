@@ -28,54 +28,83 @@ and AGPL-3.0 on the database engine is a constraint many of them cannot accept.
 
 ## What's inside
 
-| | version |
-|---|---|
-| PostgreSQL | 18.6 (Railway `postgres-ssl`) |
-| pgvector | 0.8.6 |
-| vchord_bm25 | 0.3.0 |
-| pgBackRest | 2.59.1 — Railway's backup tooling, retained |
+| | version | |
+|---|---|---|
+| PostgreSQL | 18.6 | Railway `postgres-ssl` |
+| pgvector | 0.8.6 | vector search |
+| vchord_bm25 | 0.3.0 | BM25 ranking |
+| icu_ext | 1.11.0 | word segmentation for Chinese, Thai, Khmer, Lao, Burmese |
+| unaccent, pg_trgm, fuzzystrmatch, btree_gin | contrib | diacritics, typo tolerance |
+| pgBackRest | 2.59.1 | Railway's backup tooling, retained |
+
+All of them are **created for you on first boot**. A stock `postgres-ssl` has only
+`plpgsql` enabled even though pgvector is already on disk, so every deployer's first
+job is working out which `CREATE EXTENSION` statements to run. This one has run them
+before you connect, and installed the analyzer with them.
+
+### Configuration
+
+| variable | default | |
+|---|---|---|
+| `SHARED_PRELOAD_LIBRARIES` | `vchord_bm25` | add your own preloaded extensions |
+| `BM25_EXTENSIONS` | `vector,vchord_bm25,icu_ext,unaccent,pg_trgm,btree_gin,fuzzystrmatch` | `none` to skip |
+| `BM25_ANALYZER` | `on` | `off` to skip the multilingual analyzer |
+
+`SHARED_PRELOAD_LIBRARIES` matters more than it looks. A command-line `-c` **overrides
+`postgresql.conf`**, and the image passes some — so a preload list written into
+`postgresql.conf` is silently ignored, and without this variable no deployer could add a
+preload-requiring extension at all without rebuilding the image.
+
+Extensions and the analyzer are installed from `/docker-entrypoint-initdb.d`, which
+Docker runs **only when the volume is empty**. On an existing database, apply
+[`analyzer.sql`](analyzer.sql) by hand — it is idempotent.
 
 ## Memory
 
-Idle anon memory, identical conditions, measured natively:
+Idle anon memory, identical conditions, measured natively on arm64:
 
 | configuration | idle |
 |---|---|
 | stock Railway `postgres-ssl` | 6.4 MB |
-| **+ vchord_bm25 — this image** | **6.5 MB** |
+| **this image** | **6.7 MB** |
 | + pg_tokenizer | 337.5 MB |
 
-`pg_tokenizer` costs **~331 MB** and is deliberately **not** installed.
+`pg_tokenizer` costs **~331 MB** and is deliberately **not** installed. `icu_ext` costs
+0.2 MB and 273 kB on disk, because ICU is already linked into Postgres for collations.
 
-> **Read this figure correctly.** 6.5 MB is *anon* memory at idle on an empty
+> **Read this figure correctly.** 6.7 MB is *anon* memory at idle on an empty
 > database. Total cgroup memory after a realistic 20,000-document workload is
 > **87.6 MB**, against **95.4 MB** for the same workload on `pg_search`. The honest
 > comparison against a BM25 competitor is roughly **8% better, not 50× better**.
 > The 50× figure only describes the gap against `pg_tokenizer` at idle, which is an
-> *allocation* penalty from preloading models — not a property of BM25 itself. BM25 needs a `bm25vector` — a sparse
-`{term_id:frequency}` map — but nothing requires that vector to come from
-`pg_tokenizer`. Postgres' own text search produces the same thing for a rounding
-error in memory.
+> *allocation* penalty from preloading models — not a property of BM25 itself. BM25
+> needs a `bm25vector` — a sparse `{term_id:frequency}` map — but nothing requires that
+> vector to come from `pg_tokenizer`. Postgres' own text search produces the same thing
+> for a rounding error in memory.
 
 > Measure natively. On Apple Silicon, `--platform linux/amd64` runs under Rosetta
 > and inflated every reading roughly 5× (6.4 MB read as 30.7 MB).
 
 ## Tokenizing without pg_tokenizer
 
-Apply [`analyzer.sql`](../../src/backend/search/analyzer.sql), which ships with the
-application and is applied automatically at startup. It is idempotent:
+[`analyzer.sql`](analyzer.sql) is applied for you on first boot. It is idempotent, so
+applying it to an existing database is just:
 
 ```bash
 psql "$DATABASE_URL" -f analyzer.sql
 ```
 
-It creates a `bm25_vocabulary` table mapping terms to stable ids, and three
-functions:
+It creates a `bm25_vocabulary` table mapping terms to stable ids, and these functions:
 
 | function | volatility | use |
 |---|---|---|
-| `bm25_script_class()` | IMMUTABLE | the character ranges routed to bigrams |
-| `bm25_terms(text)` | IMMUTABLE | spaced scripts via `to_tsvector`, unspaced via bigrams |
+| `bm25_script_class([script])` | IMMUTABLE | the character ranges of each unspaced script |
+| `bm25_script_of(run)` | IMMUTABLE | which script a run belongs to |
+| `bm25_runs(text)` | IMMUTABLE | the unspaced runs in a document, tagged by script |
+| `bm25_words(run, locale)` | IMMUTABLE | ICU segmentation, or bigrams where ICU is absent |
+| `bm25_terms(text)` | IMMUTABLE | **the tokenizer** — all three paths in one pass |
+| `bm25_expand_term(term)` | STABLE | single-character CJK queries → the terms containing them |
+| `bm25_nearest_term(term)` | STABLE | typo tolerance over the vocabulary, via `pg_trgm` |
 | `to_bm25(text)` | VOLATILE | **write path** — extends the vocabulary |
 | `to_bm25_query(text)` | STABLE | **read path** — lookup only, never writes |
 
@@ -111,58 +140,123 @@ ORDER BY bm25 <&> bm25_catalog.to_bm25query('messages_bm25_idx',
 LIMIT 5;
 ```
 
-### Unspaced scripts: bigrams, and why they beat pg_tokenizer here
+### Languages
 
 Postgres' text search cannot segment scripts that do not put spaces between words —
-it returns the whole phrase as one token. Those runs are indexed as overlapping
-character **bigrams** instead, the strategy Lucene's CJKAnalyzer uses.
-`analyzer.sql` does this automatically for:
+it returns the whole phrase as one token. `analyzer.sql` routes each script to the
+tokenizer that handles it, **within a single document**:
 
-| | ranges |
-|---|---|
-| Chinese | CJK unified, extension A, extension B, compatibility ideographs |
-| Japanese | hiragana, katakana, katakana phonetic ext, **halfwidth katakana** |
-| Korean | hangul syllables, hangul compatibility jamo |
-| Thai, Lao, Khmer, Myanmar | full blocks |
+| | segmenter | why |
+|---|---|---|
+| English, French, Spanish, Portuguese, German, Italian, Dutch, Russian, Arabic, Vietnamese, and 20 more | `to_tsvector` | stemming, stopwords; diacritics folded by `unaccent` |
+| **Chinese** (unified, ext A, ext B, compatibility) | **ICU** | dictionary word segmentation |
+| **Thai, Khmer, Lao, Burmese** | **ICU** | unspaced, and ICU has dictionaries for all four |
+| **Japanese** (hiragana, katakana, halfwidth katakana, kanji) | bigrams | ICU shreds katakana compounds: サワードウ → `サワ｜ード｜ウ` |
+| **Korean** (syllables, compatibility jamo) | bigrams | Korean glues particles to nouns (`빵에` = bread + locative); ICU leaves them attached, so a query for `빵` misses |
 
-Halfwidth katakana runs through U+FF9F rather than U+FF9D: the voiced sound marks are
-separate characters, and stopping short of them splits `ﾊﾟﾝ` into two single-character
-runs instead of the bigrams `ﾊﾟ ﾟﾝ`.
+Han characters are Chinese *and* Japanese. If a document contains kana anywhere it is
+Japanese and its kanji bigrams with the rest; otherwise it is Chinese and goes to ICU.
 
-That is not a compromise. `pg_tokenizer`'s `unicode_segmentation` emits character
-**unigrams**, and individual CJK characters are far too common to discriminate.
-Measured on a corpus with two decoys containing 麵 and 包 non-adjacently, query
-`麵包` (bread):
+Two details that are easy to get wrong and silent when you do. Halfwidth katakana runs
+through **U+FF9F**, not U+FF9D: the voiced sound marks are separate characters, and
+stopping short of them splits `ﾊﾟﾝ` into singletons instead of the bigrams `ﾊﾟ ﾟﾝ`. And
+the ranges are written as `\U` escapes rather than literal characters, because U+8C48
+and U+F900 render identically — pasting the wrong one made the Han range swallow the
+entire Hangul block, and Korean was quietly segmented as Chinese.
+
+### Why not character unigrams
+
+`pg_tokenizer`'s `unicode_segmentation` emits character **unigrams**, and individual
+CJK characters are far too common to discriminate. Measured on a corpus with two
+decoys containing 麵 and 包 non-adjacently, query `麵包` (bread):
 
 | analyzer | rank 1 | rank 2 | rank 3 |
 |---|---|---|---|
 | pg_tokenizer (unigrams) | ✗ 這家**麵**店的**包**子 `-0.7409` | ✗ **包**裝這個**麵**條 `-0.7134` | ✓ 酸種**麵包** `-0.6418` |
-| this image (bigrams) | ✓ 酸種**麵包** `-1.0724` | `0.0000` | `0.0000` |
+| this image | ✓ 酸種**麵包** | `0.0000` | `0.0000` |
 
-pg_tokenizer ranks **both decoys above the correct document**. Proper CJK word
-segmentation from pg_tokenizer needs a Lindera model on top, which is more
-configuration and more memory again.
+pg_tokenizer ranks **both decoys above the correct document**. Getting real word
+segmentation out of it needs a Lindera model on top — more configuration, and more
+memory again.
 
-### Benchmark
+### Verifying this yourself
+
+The relevance judgements are a data file, not prose. 13 locales, ranking plus
+tokenization:
+
+```bash
+docker run -d -p 55432:5432 -e POSTGRES_PASSWORD=pw postgres-bm25
+uv run python -m bench.search_locales postgresql://postgres:pw@localhost:55432/postgres --reset
+```
+
+```
+PASS  en            3 checks        PASS  th            3 checks
+PASS  fr            2 checks        PASS  km            3 checks
+PASS  vi            2 checks        PASS  lo            3 checks
+PASS  zh-Hant       4 checks        PASS  my            2 checks
+PASS  zh-Hans       3 checks        PASS  ru            3 checks
+PASS  ja            3 checks        PASS  ar            3 checks
+PASS  ko            3 checks        PASS  tokenization  22 checks
+
+28 documents, 204 vocabulary terms, 1720 kB index
+14/14 groups passed
+```
+
+Adding a language is an edit to [`bench/corpus.json`](../../bench/corpus.json).
+
+### What ICU actually buys
+
+Not speed. End to end it is **3–5× slower per document** than bigrams — a
+microbenchmark of `icu_word_boundaries` on its own says the opposite, but that is not
+what the analyzer does. The win is in the tokens. Same 28-document corpus, previous
+bigram-only analyzer versus this one:
+
+| | bigrams only | with ICU |
+|---|---|---|
+| vocabulary | 377 terms | **204 terms** |
+| index | 3,104 kB | **1,720 kB** |
+| Thai, one sentence | 37 tokens | **9 tokens** |
+| Chinese, one sentence | 22 tokens | **14 tokens** |
+| Lao decoy sharing no words | scores `-4.8806` ✗ | **`0.0000`** ✓ |
+| Vietnamese typed without diacritics | no results ✗ | **ranks correctly** ✓ |
+| Korean single-character query `빵` | no results ✗ | **ranks correctly** ✓ |
+
+Since vchord_bm25 spends ~8 kB of index per distinct term, **fewer and better terms is
+what costs less** — the 45% smaller index above is the same fact as the better ranking.
+
+Tokenizer cost per document, best of five runs of 3,000 iterations:
+
+| | bigrams only | with ICU |
+|---|---|---|
+| English | 0.0192 ms | 0.0187 ms |
+| Chinese | 0.0270 ms | 0.0990 ms |
+| Japanese | 0.0268 ms | 0.0856 ms |
+| Korean | 0.0327 ms | 0.1134 ms |
+| Thai | 0.0206 ms | 0.1087 ms |
+
+English is unaffected because documents with no unspaced script never enter the
+segmenter at all. For the rest, a tenth of a millisecond against a ~6 ms search is not
+where the time goes.
+
+### Against pg_tokenizer
 
 20,000 mixed English/Chinese documents, identical corpus and queries, native arm64:
 
 | | pg_tokenizer | this image |
 |---|---|---|
-| idle memory | 336.6 MB | **6.5 MB** |
+| idle memory | 336.6 MB | **6.7 MB** |
 | after workload | 336.9 MB | **6.8 MB** |
 | ingest 20k docs | **3.5 s** | 12.3 s |
 | index build | **368 ms** | 418 ms |
 | search, 200 varying queries | **0.37 ms** each | 6.5 ms each |
-| tokenize only, per call | **0.03 ms** | 0.94 ms |
 | CJK precision | ✗ decoys outrank | ✓ correct |
 
 pg_tokenizer is genuinely faster — roughly 17× per search and 3.5× on ingest. The
 trade is 330 MB of permanently resident memory and worse CJK ranking. At 6.5 ms a
 search this is not a bottleneck for a chat application, and the memory is the
-difference between a database service that is cheap to leave running and one that
-is not. If your workload is high-QPS search where 6 ms matters more than 330 MB,
-install pg_tokenizer and configure a Lindera model for CJK.
+difference between a database service that is cheap to leave running and one that is
+not. If your workload is high-QPS search where 6 ms matters more than 330 MB, install
+pg_tokenizer and configure a Lindera model for CJK.
 
 ### What Postgres alone does with these scripts
 

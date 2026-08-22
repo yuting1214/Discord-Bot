@@ -38,14 +38,27 @@ FROM debian:trixie-slim AS fetch
 
 ARG PG_MAJOR
 ARG VCHORD_BM25_VERSION=0.3.0
-ARG TARGETARCH=amd64
+# Declared bare on purpose. BuildKit fills this in from --platform, but only
+# when the ARG has no default of its own: with `ARG TARGETARCH=amd64` an arm64
+# build silently downloads the amd64 package and fails at dpkg.
+ARG TARGETARCH
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
     mkdir -p /packages; \
     curl -fsSL -o "/packages/vchord-bm25.deb" \
-      "https://github.com/tensorchord/VectorChord-bm25/releases/download/${VCHORD_BM25_VERSION}/postgresql-${PG_MAJOR}-vchord-bm25_${VCHORD_BM25_VERSION}-1_${TARGETARCH}.deb"
+      "https://github.com/tensorchord/VectorChord-bm25/releases/download/${VCHORD_BM25_VERSION}/postgresql-${PG_MAJOR}-vchord-bm25_${VCHORD_BM25_VERSION}-1_${TARGETARCH}.deb"; \
+    # icu_ext comes from pgdg rather than a GitHub release, so the repo has to
+    # exist here to download it. apt-get download, not install: nothing is
+    # unpacked in this stage, and the package lists never reach the final image.
+    curl -fsSL -o /etc/apt/trusted.gpg.d/pgdg.asc \
+      "https://www.postgresql.org/media/keys/ACCC4CF8.asc"; \
+    echo "deb http://apt.postgresql.org/pub/repos/apt trixie-pgdg main ${PG_MAJOR}" \
+      > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    cd /packages && apt-get download "postgresql-${PG_MAJOR}-icu-ext"; \
+    mv "/packages/postgresql-${PG_MAJOR}-icu-ext"_*.deb /packages/icu-ext.deb
 
 # ---- Final stage: Railway's Postgres, plus BM25 ----
 FROM ghcr.io/railwayapp-templates/postgres-ssl:${PG_TAG}
@@ -55,7 +68,7 @@ ARG PG_TAG
 ARG VCHORD_BM25_VERSION=0.3.0
 
 LABEL org.opencontainers.image.title="postgres-bm25" \
-      org.opencontainers.image.description="Railway postgres-ssl with pgvector and vchord_bm25" \
+      org.opencontainers.image.description="Railway postgres-ssl with pgvector, BM25 and multilingual search" \
       org.opencontainers.image.source="https://github.com/yuting1214/Discord-Bot" \
       org.opencontainers.image.licenses="MIT" \
       com.railway.postgres-ssl.tag="${PG_TAG}" \
@@ -65,17 +78,32 @@ COPY --from=fetch /packages/*.deb /tmp/
 
 # dpkg only: apt-get update would pull package lists into the layer for no gain.
 RUN set -eux; \
-    dpkg -i /tmp/vchord-bm25.deb; \
+    dpkg -i /tmp/vchord-bm25.deb /tmp/icu-ext.deb; \
     rm -f /tmp/*.deb; \
     test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/vchord_bm25.so"; \
+    test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/icu_ext.so"; \
     # tsearch_data ships root:root 755, and CREATE TEXT SEARCH DICTIONARY reads
     # its stopword and synonym files from there by name -- so a deployer cannot
     # install a custom dictionary at all without this. Costs nothing.
     chown postgres:postgres "/usr/share/postgresql/${PG_MAJOR}/tsearch_data"
 
-# vchord_bm25 must be preloaded or CREATE EXTENSION fails outright.
-# Baked into CMD rather than left to the deployer: Railway's entrypoint is
-# wrapper.sh, and overriding the command at deploy time drops the arguments it
-# needs (`-p 5432 -c listen_addresses=*`) and the server never starts.
-CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*", \
-     "-c", "shared_preload_libraries=vchord_bm25"]
+# The analyzer is the same file the application ships; tests keep the two
+# byte-identical. It lives outside initdb.d because it must run after the
+# extensions, and initdb.d runs in filename order regardless of dependencies.
+COPY analyzer.sql /usr/local/share/postgres-bm25/analyzer.sql
+COPY initdb.sh /docker-entrypoint-initdb.d/10-postgres-bm25.sh
+COPY entrypoint.sh /usr/local/bin/postgres-bm25-entrypoint.sh
+
+RUN chmod 0755 /usr/local/bin/postgres-bm25-entrypoint.sh \
+               /docker-entrypoint-initdb.d/10-postgres-bm25.sh
+
+# vchord_bm25 must be preloaded or CREATE EXTENSION fails outright, and the
+# preload list can only be set on the command line -- see entrypoint.sh. CMD
+# keeps `postgres` as its first word because the official entrypoint tests for
+# it to decide whether to initialise the database.
+#
+# Do not override the command at deploy time: doing so drops the arguments
+# Railway's wrapper needs (`-p 5432 -c listen_addresses=*`) and the server
+# never starts.
+ENTRYPOINT ["postgres-bm25-entrypoint.sh"]
+CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]
